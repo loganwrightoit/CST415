@@ -662,12 +662,11 @@ int main()
 
     // Cycle for 100 requests and responses
 
-	// Need to impose at least 50ms delay after receive() before transmitting again
     while (requestID < 100) {
         string msg = getMessage();
         transmit(msg.c_str());
         receive(); // Blocking
-
+        Sleep(50); // Sleep 50ms after receive
     }
 
     //printf("\nDEBUG: Lab complete, shutting down connection.\n");
