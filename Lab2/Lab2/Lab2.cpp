@@ -22,17 +22,22 @@ struct addrinfo *result = NULL, *ptr = NULL, hints;
 
 //
 // Shuts down connection and socket and returns array of results.
-// First parameter is transmit closure, second is receive closure.
+// First parameter is receive close status, second is send close status, third is socket close status.
 //
 int* _shutdown()
 {
-    int * results = new int[2];
+    int * results = new int[3];
 
-	results[0] = shutdown(_socket, SD_SEND); // Close half duplex connection
-    if (results[0] == SOCKET_ERROR) {
-		printf("ERROR: Shutdown failed: %d\n", WSAGetLastError());
+	results[0] = shutdown(_socket, SD_RECEIVE); // Close receiving side
+	if (results[0] == SOCKET_ERROR) {
+		printf("ERROR: Socket receive shutdown failed: %d\n", WSAGetLastError());
 	}
-    results[1] = closesocket(_socket);
+	results[1] = shutdown(_socket, SD_SEND); // Close sending side
+    if (results[1] == SOCKET_ERROR) {
+		printf("ERROR: Socket send shutdown failed: %d\n", WSAGetLastError());
+	}
+
+    results[2] = closesocket(_socket);
 	WSACleanup();
 
     return results;
@@ -285,7 +290,7 @@ string getMessage()
 	session with the instructor’s server.
 	*/
 
-    msg.append(std::to_string(sin.sin_family));
+    msg.append(std::to_string(_socket));
 	msg.append("|");
 
 	/*
@@ -356,7 +361,7 @@ string getMessage()
     return msg;
 }
 
-void addTrailRecord(int shutTransmit, int shutReceive)
+void addTrailRecord(int shutTransmit, int shutReceive, int shutSocket)
 {
     string msg = "";
 
@@ -421,6 +426,18 @@ void addTrailRecord(int shutTransmit, int shutReceive)
 
 	msg.append(std::to_string(shutReceive));
     msg.append("|");
+
+	/*
+	Field Name : CloseStatus
+	Data type : ASCII Numeric
+	Justification : Right, space or zero filled to the left
+	Length : 5
+	Begin position : 28
+	End position : 32
+	Description : Return status from issuing a socket close command
+	*/
+
+	msg.append(std::to_string(shutSocket));
 
     cout << msg << endl;
 }
@@ -672,7 +689,7 @@ int main()
     //printf("\nDEBUG: Lab complete, shutting down connection.\n");
 
     int* shutdownStatus = _shutdown();
-    addTrailRecord(shutdownStatus[0], shutdownStatus[1]);
+    addTrailRecord(shutdownStatus[0], shutdownStatus[1], shutdownStatus[2]);
     delete[] shutdownStatus;
 
 	return 0;
