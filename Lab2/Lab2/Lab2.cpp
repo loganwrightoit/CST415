@@ -146,8 +146,6 @@ void startup()
 	}
 }
 
-///// LAB REQUIREMENTS BELOW
-
 string getMessage()
 {
 	string msg = "";
@@ -407,7 +405,7 @@ void addTrailRecord(int shutTransmit, int shutReceive)
     Insert a vertical ‘|’ character at position 21
     */
 
-    msg.append((char*)shutTransmit);
+	msg.append(std::to_string(shutTransmit));
     msg.append("|");
 
     /*
@@ -421,7 +419,7 @@ void addTrailRecord(int shutTransmit, int shutReceive)
     session.
     */
 
-    msg.append((char*)shutReceive);
+	msg.append(std::to_string(shutReceive));
     msg.append("|");
 
     cout << msg << endl;
@@ -664,10 +662,12 @@ int main()
 
     // Cycle for 100 requests and responses
 
-    while (requestID < 1) {
+	// Need to impose at least 50ms delay after receive() before transmitting again
+    while (requestID < 100) {
         string msg = getMessage();
         transmit(msg.c_str());
         receive(); // Blocking
+
     }
 
     //printf("\nDEBUG: Lab complete, shutting down connection.\n");
