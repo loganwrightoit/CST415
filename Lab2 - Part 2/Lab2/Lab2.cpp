@@ -64,29 +64,13 @@ void transmit(const CHAR * inStr)
 	excluding these two bytes.
 	*/
 
-	// Attach length to message
+	// Prepend message with two-byte length header
 	u_short len = strlen(inStr);
 	byte byteLen[] = { (len & 0xff00) >> 8, (len & 0xff) };
-
 	string s = "";
 	s += byteLen[0];
 	s += byteLen[1];
-	cout << "DEBUG: Added length of " << byteLen[0] << " and " << byteLen[1] << " to header." << endl;
 	s += inStr;
-
-	//u_short len = htons(strlen(inStr));
-	//string s = (char*)len;
-	//s.append(inStr);
-
-	/*
-    u_short len = htons(strlen(inStr));
-    int _result = send(_socket, (char*)&len, sizeof(len), 0);
-    if (_result == SOCKET_ERROR) {
-        cout << "DEBUG: Error sending msg length: " << WSAGetLastError() << ", shutting down connection." << endl;
-        _shutdown();
-        return;
-    }
-	*/
 
     // Send message
     int _result = send(_socket, s.c_str(), s.length(), 0);
@@ -101,26 +85,31 @@ void transmit(const CHAR * inStr)
 //
 // Receive transaction data and store in buffer.
 //
-void receive()
+boolean receive()
 {
-	// Receive message length portion of message
+	// Receive first two bytes (message length)
     u_short messageLength;
-    int bytesRecv = recv(_socket, (char*)&messageLength, sizeof(messageLength), 0);
+	int inBytes = recv(_socket, (char*)&messageLength, sizeof(messageLength), 0);
 
-	// If length received, receive the message
-	if (bytesRecv > 0) {
-		char buffer[DEFAULT_BUFLEN];
+	if (inBytes == WSAEWOULDBLOCK) {
+		return false;
+	}
+
+	if (inBytes > 0) {
+		char buffer[DEFAULT_BUFLEN] = "";
 		int _msg = recv(_socket, buffer, ntohs(messageLength), 0);
 		if (_msg > 0) {
 			cout << buffer << endl;
+			return true;
 		}
+	} else if (inBytes == 0) {
+		//cout << "DEBUG: Server gracefully closed connection.\n";
+	} else {
+		//cout << "DEBUG: Error receiving: " << WSAGetLastError() << ", shutting down connection." << endl;
+		//_shutdown();
 	}
-	else if (bytesRecv == 0) {
-		cout << "DEBUG: Server gracefully closed connection.\n";
-	}
-	else {
-		cout << "DEBUG: Error receiving: " << WSAGetLastError() << ", shutting down connection." << endl;
-	}
+
+	return false;
 }
 
 //
@@ -175,6 +164,7 @@ void startup()
 string getMessage()
 {
 	string msg = "";
+	int reqId = genRequestID();
 
 	/*
 	Field Name: MessageType
@@ -219,7 +209,7 @@ string getMessage()
 	message and in the same positions.
 	*/
 
-    msg.append(std::to_string(genRequestID()));
+	msg.append(std::to_string(reqId));
 	msg.append("|");
 	
 	/*
@@ -259,10 +249,15 @@ string getMessage()
 	Begin position: Variable
 	End position: Variable
 	Description: A numeric value that represents the number of milliseconds the
-	server is to delay before sending a response.
+	server is to delay before sending a response.  Maximum of 3000 ms.
 	*/
 
-	msg.append("0");
+	if (reqId == 25 | reqId == 50 | reqId == 75) {
+		msg.append("3000");
+	} else {
+		msg.append("0");
+	}
+
 	msg.append("|");
 
 	/*
@@ -691,9 +686,21 @@ End position: 32
 Description: Return status from issuing a socket close command
 */
 
+int recvCheck()
+{
+	boolean receive();
+
+	if (receive()) {
+		return 1;
+	}
+	else {
+		return 0;
+	}
+}
+
 int main()
 {
-    //freopen("out.txt", "w", stdout); // Output to file
+    freopen("out.txt", "w", stdout); // Output to file
     //printf("DEBUG: Lab starting up...\n");
 	startup();
 
@@ -703,14 +710,23 @@ int main()
 
     //printf("DEBUG: Remote connection successful.\n");
 
-    // Cycle for 100 requests and responses
+	int numMsgs = 100;
+	int recvCount = 0;
 
-    while (requestID < 1) {
-        string msg = getMessage();
-        transmit(msg.c_str());
-        receive(); // Non-Blocking
-        Sleep(50); // Sleep 50ms after receive
-    }
+	// Begin sending and check for responses in-between
+
+	while (requestID < numMsgs) {
+		string msg = getMessage();
+		transmit(msg.c_str());
+		Sleep(50);
+		recvCount += recvCheck(); // Check for incoming response
+	}
+
+	// Finish up receiving responses
+
+	while (recvCount < numMsgs) {
+		recvCount += recvCheck();
+	}
 
     //printf("\nDEBUG: Lab complete, shutting down connection.\n");
 
