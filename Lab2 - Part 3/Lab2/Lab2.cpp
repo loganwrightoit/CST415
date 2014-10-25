@@ -14,6 +14,7 @@ using namespace std;
 
 #define DEFAULT_ADDR "192.168.101.210"
 #define DEFAULT_PORT 2605
+#define MAX_BUFSIZE 144
 
 int requestID = 0;
 
@@ -113,7 +114,7 @@ string getMessage(SOCKET sock)
 	server is to delay before sending a response.  Maximum of 3000 ms.
 	*/
 
-	if (reqId == 25 | reqId == 50 | reqId == 75) {
+	if (reqId == 25 || reqId == 50 || reqId == 75) {
 		msg.append("3000");
 	} else {
 		msg.append("0");
@@ -477,12 +478,18 @@ void responseFormat()
 	*/
 }
 
+int recvThread(SOCKET sock)
+{
+
+}
+
 int recvCheck(SOCKET sock)
 {
-    const char * result = getReq(sock);
+	char temp[MAX_BUFSIZE] = "";
+    getRsp(sock, temp);
 
-    if (strlen(result) > 0) {
-        cout << result << endl;
+	if (strlen(temp) > 0) {
+		cout << temp << endl;
         return 1;
     }
     else {
@@ -516,8 +523,8 @@ int main()
 	// Begin sending and check for responses in-between
 	while (requestID < numMsgs) {
         cout << "DEBUG: Sending request..." << endl;
-        putReq(sock, getMessage(sock).c_str());
-		Sleep(50);
+		putReq(sock, const_cast<char*>(getMessage(sock).c_str()));
+		Sleep(500);
 		recvCount += recvCheck(sock); // Check for incoming response
 	}
 

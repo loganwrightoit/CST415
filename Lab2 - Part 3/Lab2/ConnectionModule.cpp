@@ -11,33 +11,24 @@ using namespace std;
 WSADATA wsaData;
 struct sockaddr_in clientService;
 
-//
-// Sets socket to non-blocking mode.
-//
-bool setNonBlocking(SOCKET sock)
+void putReq(SOCKET sock, char * inStr)
 {
-    u_long iMode = 1; // Non-zero means NON-BLOCKING
-    return ioctlsocket(sock, FIONBIO, &iMode) == 0;
+     xmt(sock, inStr);
 }
 
-bool putReq(SOCKET sock, const char * request)
+void getReq(SOCKET sock, char * outStr)
 {
-    return xmt(sock, request);
+	rcv(sock, outStr);
 }
 
-const char * getReq(SOCKET sock)
+void putRsp(SOCKET sock, char * inStr)
 {
-    return rcv(sock);
+    xmt(sock, inStr);
 }
 
-bool putRsp(SOCKET sock, const char * response)
+void getRsp(SOCKET sock, char * outStr)
 {
-    return xmt(sock, response);
-}
-
-const char * getRsp(SOCKET sock)
-{
-    return rcv(sock);
+	rcv(sock, outStr);
 }
 
 //
@@ -67,7 +58,7 @@ int* shutdownSocket(SOCKET sock)
 // Transmit message over connection.
 // Returns true if message successfully sent.
 //
-bool xmt(SOCKET sock, const CHAR * inStr)
+bool xmt(SOCKET sock, CHAR * inStr)
 {
     /*
     Field Name: TCPHeader
@@ -81,12 +72,15 @@ bool xmt(SOCKET sock, const CHAR * inStr)
     */
 
     // Prepend message with two-byte length header
+
     u_short len = strlen(inStr);
     byte byteLen[] = { (len & 0xff00) >> 8, (len & 0xff) };
     string s = "";
     s += byteLen[0];
     s += byteLen[1];
     s += inStr;
+
+	// Transmit message
 
     int result = send(sock, s.c_str(), s.length(), 0);
     if (result == SOCKET_ERROR) {
@@ -104,9 +98,11 @@ bool xmt(SOCKET sock, const CHAR * inStr)
 //
 // Receive transaction data and return string.
 //
-const char * rcv(SOCKET sock)
+void rcv(SOCKET sock, char * outStr)
 {
-    string s;
+    string s = "";
+
+	cout << "DEBUG: Attempting to receive data..." << endl;
 
     // Receive first two bytes (message length)
     u_short messageLength;
@@ -124,11 +120,11 @@ const char * rcv(SOCKET sock)
     }
     else if (inBytes == WSAEWOULDBLOCK) // Nothing to receive, don't block
     {
-        return s.c_str();
+		strcpy(outStr, const_cast<char*>(s.c_str()));
     }
     else if (inBytes == 0) // Shutdown successful
     {
-        return s.c_str();
+		strcpy(outStr, const_cast<char*>(s.c_str()));
     }
     else // An error occurred
     {
@@ -136,7 +132,7 @@ const char * rcv(SOCKET sock)
         shutdownSocket(sock);
     }
 
-    return s.c_str();
+	strcpy(outStr, const_cast<char*>(s.c_str()));
 }
 
 //
