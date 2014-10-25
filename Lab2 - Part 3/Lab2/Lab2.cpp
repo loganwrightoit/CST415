@@ -6,6 +6,7 @@
 #include <iomanip>
 #include <stdint.h>
 #include <atlstr.h>
+#include <thread>
 #include "ConnectionModule.h"
 
 using namespace std;
@@ -478,37 +479,45 @@ void responseFormat()
 	*/
 }
 
-int recvThread(SOCKET sock)
+//
+// Transmits request numReq times.
+//
+void xmtThread(SOCKET sock, int numReq)
 {
-
+	for (int count = 0; count < numReq; ++count) {
+		putReq(sock, const_cast<char*>(getMessage(sock).c_str()));
+		Sleep(50);
+	}
 }
 
-int recvCheck(SOCKET sock)
+//
+// Receives response numRsp times.
+//
+void rcvThread(SOCKET sock, int numRsp)
 {
-	char temp[MAX_BUFSIZE] = "";
-    getRsp(sock, temp);
+	setBlocking(sock, true); // Block, just because
 
-	if (strlen(temp) > 0) {
-		cout << temp << endl;
-        return 1;
-    }
-    else {
-        return 0;
-    }
+	int count = 0;
+	while (count < numRsp) {
+		char temp[MAX_BUFSIZE] = "";
+		getRsp(sock, temp);
+		if (strlen(temp) > 0) {
+			cout << temp << endl;
+			++count;
+		}
+	}
+
+	setBlocking(sock, false);
 }
 
 int main()
 {
-    cout << "Initializing winsock..." << endl;
-
     if (!initWinsock()) {
         cout << "DEBUG: Winsock initialization failed: " << WSAGetLastError() << endl;
         return 0;
     }
 
     //freopen("out.txt", "w", stdout); // Output to file
-
-    cout << "DEBUG: Attempting to connect to server..." << endl;
 
     SOCKET sock = connectTo(DEFAULT_ADDR, DEFAULT_PORT, 3);
 
@@ -517,21 +526,13 @@ int main()
         return 0;
     }
 
-	int numMsgs = 1;
-	int recvCount = 0;
+	int numMsgs = 5;
 
-	// Begin sending and check for responses in-between
-	while (requestID < numMsgs) {
-        cout << "DEBUG: Sending request..." << endl;
-		putReq(sock, const_cast<char*>(getMessage(sock).c_str()));
-		Sleep(500);
-		recvCount += recvCheck(sock); // Check for incoming response
-	}
+	thread xmtThread(xmtThread, sock, numMsgs);
+	thread rcvThread(rcvThread, sock, numMsgs);
 
-	// Finish up receiving responses
-	while (recvCount < numMsgs) {
-		recvCount += recvCheck(sock);
-	}
+	xmtThread.join();
+	rcvThread.join();
 
     int* shutdownStatus = shutdownSocket(sock);
     addTrailRecord(shutdownStatus[0], shutdownStatus[1], shutdownStatus[2]);

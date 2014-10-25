@@ -102,8 +102,6 @@ void rcv(SOCKET sock, char * outStr)
 {
     string s = "";
 
-	cout << "DEBUG: Attempting to receive data..." << endl;
-
     // Receive first two bytes (message length)
     u_short messageLength;
     int inBytes = recv(sock, (char*)&messageLength, sizeof(messageLength), 0);
