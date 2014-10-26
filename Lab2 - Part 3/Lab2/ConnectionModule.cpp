@@ -88,7 +88,7 @@ bool xmt(SOCKET sock, CHAR * inStr)
         shutdownSocket(sock);
     }
     else {
-        cout << inStr << endl;
+        //cout << inStr << endl;
         return true;
     }
 
