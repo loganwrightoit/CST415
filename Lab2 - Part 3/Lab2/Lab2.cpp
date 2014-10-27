@@ -8,6 +8,7 @@
 #include <atlstr.h>
 #include <thread>
 #include "ConnectionModule.h"
+#include "Message.h"
 
 using namespace std;
 
@@ -17,8 +18,14 @@ using namespace std;
 #define DEFAULT_PORT 2605
 #define MAX_BUFSIZE 144
 
-const int numMsgs = 1;
+const int numMsgs = 5;
 int requestID = 0;
+
+// Store request messages to match them up with responses later
+static char req[numMsgs][MAX_BUFSIZE];
+
+// True if waiting for a response for RequestID
+static bool waitForRsp[numMsgs];
 
 int genRequestID()
 {
@@ -551,12 +558,6 @@ void addTrailRecord(int shutTransmit, int shutReceive, int shutSocket)
             “ResponseType” field of the response message that this is an unsolicited response.
 */
 
-// Store request messages to match them up with responses later
-static char req[100][MAX_BUFSIZE];
-
-// True if waiting for a response for RequestID
-static bool waitForRsp[numMsgs] = { true };
-
 //
 // Waits a preset amount of time before issuing a stand-in response, or
 // dropping the response from the expected responses.
@@ -565,45 +566,15 @@ void createClientRspThread(SOCKET sock, int id)
 {
 	Sleep(3000); // Sleep 3 seconds
 	if (waitForRsp[id]) {
+
+		cout << "DEBUG: 3sec timeout exceeded for id " << id << ", issuing stand-in response." << endl;
+		waitForRsp[id] = false;
+
 		// Issue internal stand-in response, but allow a latent response for 20s
-		cout << req[id] << endl;
+		//cout << req[id] << endl;
 
-		// Generate client parameters and fill stand-in response
 
-		char * pch;
-		pch = strtok(req[id], "|");
-		char messageType[4] = "";               // MessageType
-		strcpy(messageType, pch);
-		pch = strtok(NULL, "|");
-		long msTimeStamp = atol(pch);           // msTimeStamp
-		pch = strtok(NULL, "|");
-		int requestId = atoi(pch);              // RequestID
-		pch = strtok(NULL, "|");
-		char studentName[21] = "";              // StudentName
-		strcpy(studentName, pch);
-		pch = strtok(NULL, "|");
-		char studentId[8] = "";                 // StudentID
-		strcpy(studentId, pch);
-		pch = strtok(NULL, "|");
-		int responseDelay = atoi(pch);          // ResponseDelay
-		pch = strtok(NULL, "|");
-		char foreignHostIpAddress[16] = "";     // ForeignHostIPAddress
-		strcpy(foreignHostIpAddress, pch);
-		pch = strtok(NULL, "|");
-		int foreignHostServicePort = atoi(pch); // ForeignHostServicePort
-		pch = strtok(NULL, "|");
-		int serverSocketNumber = atoi(pch);     // ServerSocketNumber
-		pch = strtok(NULL, "|");
-		int serverIpAddress = atoi(pch);        // ServerIPAddress
-		pch = strtok(NULL, "|");
-		int serverServicePort = atoi(pch);      // ServerServicePort
-		pch = strtok(NULL, "|");
-		char responseId[21] = "";               // ResponseID
-		strcpy(responseId, pch);
-		pch = strtok(NULL, "|");
-		int responseType = atoi(pch);           // ResponseType
-
-		cout << getRspMsg(sock, requestID, studentName, foreignHostIpAddress, foreignHostServicePort, studentId, responseDelay, "Stand-in RSP", 2);
+		//cout << getRspMsg(sock, requestID, studentName, foreignHostIpAddress, foreignHostServicePort, studentId, responseDelay, "Stand-in RSP", 2);
 
 		return;
 	}
@@ -611,6 +582,7 @@ void createClientRspThread(SOCKET sock, int id)
 		Sleep(20000); // Sleep 20 more seconds
 		if (waitForRsp[id]) {
 			// Don't wait for this response anymore.. it will log as unsolicited if received
+			cout << "DEBUG: 20sec timeout exceeded for id " << id << ", dropping record." << endl;
 			waitForRsp[id] = false;
 		}
 	}
@@ -622,12 +594,8 @@ void createClientRspThread(SOCKET sock, int id)
 void xmtThread(SOCKET sock)
 {
 	for (int count = 0; count < numMsgs; ++count) {
-		cout << "DEBUG: zero memory: " << req[count] << endl;
-		
         strcpy(req[count], const_cast<char*>(getReqMsg(sock, genRequestID(), "Normal REQ", 3).c_str())); // Copy message for later
-		
-		cout << "DEBUG: copied memory: " << req[count] << endl;
-		
+		cout << "DEBUG: Transmitting request id " << count << endl;
 		putReq(sock, req[count]);
 		thread createClientRspThread(createClientRspThread, sock, count); // Create timeout thread for rsp
 		createClientRspThread.detach();
@@ -642,44 +610,59 @@ void rcvThread(SOCKET sock)
 {
 	setBlocking(sock, true); // Threaded, so block
 
+
+
 	int count = 0;
 	while (count < numMsgs) {
+		cout << "DEBUG: Doing rcvThread() stuff..." << endl;
 		char temp[MAX_BUFSIZE] = "";
 		getRsp(sock, temp);
 		if (strlen(temp) > 0)
 		{
-			char * pch;
-			pch = strtok(temp, "|");
-			char messageType[4] = "";               // MessageType
-			strcpy(messageType, pch);
-			pch = strtok(NULL, "|");
-			long msTimeStamp = atol(pch);           // msTimeStamp
-			pch = strtok(NULL, "|");
-			int requestId = atoi(pch);              // RequestID
-			pch = strtok(NULL, "|");
-			char studentName[21] = "";              // StudentName
-			strcpy(studentName, pch);
-			pch = strtok(NULL, "|");
-			char studentId[8] = "";                 // StudentID
-			strcpy(studentId, pch);
-			pch = strtok(NULL, "|");
-			int responseDelay = atoi(pch);          // ResponseDelay
-			pch = strtok(NULL, "|");
-			char foreignHostIpAddress[16] = "";     // ForeignHostIPAddress
-			strcpy(foreignHostIpAddress, pch);
-			pch = strtok(NULL, "|");
-			int foreignHostServicePort = atoi(pch); // ForeignHostServicePort
-			pch = strtok(NULL, "|");
-			int serverSocketNumber = atoi(pch);     // ServerSocketNumber
-			pch = strtok(NULL, "|");
-			int serverIpAddress = atoi(pch);        // ServerIPAddress
-			pch = strtok(NULL, "|");
-			int serverServicePort = atoi(pch);      // ServerServicePort
-			pch = strtok(NULL, "|");
-			char responseId[21] = "";               // ResponseID
-			strcpy(responseId, pch);
-			pch = strtok(NULL, "|");
-			int responseType = atoi(pch);           // ResponseType
+			Message msg = Message(temp);
+
+			int requestId = msg.getRequestId();
+			
+			if (requestId >= numMsgs) {
+				cout << "DEBUG: Received out-of-range RSP with id: " << requestId << endl;
+				return;
+			}
+
+			if (!waitForRsp[requestId])
+			{
+				// If not waiting for response, issue it as unsolicited
+				cout << "DEBUG: rcv() received unsolicited RSP with id: " << requestId << endl;
+				/*
+				temp[strlen(temp) - 2] = 4;
+				cout << temp << endl;
+				*/
+			}
+			else {
+				waitForRsp[requestId] = false;
+
+				// Awaiting a response, figure out if it's a normal or latent response
+				long msElapsed = GetTickCount() - msg.getMsTimestamp();
+				if (msElapsed < 3000)
+				{
+					// Normal response
+					cout << "DEBUG: rcv() creating a normal RSP for id: " << requestId << endl;
+					//cout << req[requestId] << endl;
+					//temp[strlen(temp) - 2] = 1;
+					//cout << temp << endl;
+
+				}
+				else if (msElapsed > 20000)
+				{
+					// Unsolicited RSP
+					cout << "DEBUG: rcv() creating unsolicited RSP for id: " << requestId << endl;
+					//temp[strlen(temp) - 2] = 4;
+					//cout << temp << endl;
+				}
+				else
+				{
+					cout << "DEBUG: rcv() creating a latent RSP for id: " << requestId << endl;
+				}
+			}
 
 			/*
 				ResponseTypes:
@@ -688,56 +671,6 @@ void rcvThread(SOCKET sock)
 				3. Latent response received from server
 				4. Spurious or unsolicited response received from server
 			*/
-		
-			// Generate ResponseType and output request and/or response
-			if (requestId < numMsgs && strlen(req[requestId]) > 0)
-			{
-				// Generate cached request parameters
-				char * pch;
-				pch = strtok(req[requestId], "|");
-				pch = strtok(NULL, "|");
-				long timestamp = atol(pch);
-				pch = strtok(NULL, "|");
-				int msgId = atoi(pch);
-
-				if (!waitForRsp[msgId])
-				{
-					// Unsolicited RSP
-					temp[strlen(temp) - 2] = 4;
-					cout << temp << endl;
-				}
-				else
-				{
-					long msElapsed = GetTickCount() - timestamp;
-					if (msElapsed < 3000)
-					{
-						// Normal response
-						cout << req[requestId] << endl;
-						temp[strlen(temp) - 2] = 1;
-						cout << temp << endl;
-
-					}
-					else if (msElapsed > 20000)
-					{
-						// Unsolicited RSP
-						temp[strlen(temp) - 2] = 4;
-						cout << temp << endl;
-					}
-					else
-					{
-						// Latent RSP
-						cout << req[requestId] << endl;
-						temp[strlen(temp) - 2] = 3;
-						cout << temp << endl;
-					}
-				}
-			}
-			else
-			{
-				// Unsolicited RSP
-				temp[strlen(temp) - 2] = 4;
-				cout << temp << endl;
-			}
 
 			++count;
 		}
@@ -761,6 +694,11 @@ int main()
         cout << "DEBUG: Unable to connect to server, shutting down..." << endl;
         return 0;
     }
+
+	for (int count = 0; count < numMsgs; ++count)
+	{
+		waitForRsp[count] = true;
+	}
 
 	thread xmtThread(xmtThread, sock);
 	thread rcvThread(rcvThread, sock);

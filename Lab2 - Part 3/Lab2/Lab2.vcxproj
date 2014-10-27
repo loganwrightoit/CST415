@@ -78,9 +78,11 @@
   <ItemGroup>
     <ClCompile Include="ConnectionModule.cpp" />
     <ClCompile Include="Lab2.cpp" />
+    <ClCompile Include="Message.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ConnectionModule.h" />
+    <ClInclude Include="Message.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
