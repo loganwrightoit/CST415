@@ -18,7 +18,7 @@ using namespace std;
 #define DEFAULT_PORT 2605
 #define MAX_BUFSIZE 144
 
-const int numMsgs = 5;
+const int numMsgs = 100;
 int requestID = 0;
 
 // Store request messages to match them up with responses later
@@ -535,28 +535,36 @@ void addTrailRecord(int shutTransmit, int shutReceive, int shutSocket)
 	cout << msg << endl;
 }
 
-/*
-    Part 3 instructions:
 
-    3.2.6.  Client is to populate the “ResponseDelay” field of at least two request messages
-            with a millisecond value of an ASCII 4000, to cause a latent response after it has
-            issued an internal stand-in response.
-            - DONE
+void outputNormalRsp(Message reqMsg, Message rspMsg)
+{
+	cout << reqMsg.to_string() << endl;
+	cout << rspMsg.to_string() << endl;
+	cout << "---------------------------------------------------------------------" << endl;
+}
 
-    3.2.7.  Client must issue a stand-in response after a pending request has waited no less
-            than three seconds and no longer than four seconds for a matching response.
-            Client will log the request and stand-in response and note in the “ResponseType”
-            field of the response message that this is a stand-in response.
+void outputStandInRsp(Message reqMsg, string rspMsg)
+{
+	cout << reqMsg.to_string() << endl;
+	cout << rspMsg << endl;
+	cout << "---------------------------------------------------------------------" << endl;
+}
 
-    3.2.8.  When client detects a latent response, it must match it to the proper original
-            request and record both to the log file, and note in the “ResponseType” field of the
-            response message that this is a latent response.
+void outputLatentRsp(Message reqMsg, Message rspMsg)
+{
+	cout << reqMsg.to_string() << endl;
+	rspMsg.setResponseType(3);
+	cout << rspMsg.to_string() << endl;
+	cout << "---------------------------------------------------------------------" << endl;
+}
 
-    3.2.9.  In the event client receives an unsolicited response (e.g. a latent response after
-            waiting the additional 20 seconds, or simply a spurious response from the server)
-            client is to log the response (w/o its matching request) and note in the
-            “ResponseType” field of the response message that this is an unsolicited response.
-*/
+void outputUnsolicitedRsp(Message reqMsg, Message rspMsg)
+{
+	cout << reqMsg.to_string() << endl;
+	rspMsg.setResponseType(4);
+	cout << rspMsg.to_string() << endl;
+	cout << "---------------------------------------------------------------------" << endl;
+}
 
 //
 // Waits a preset amount of time before issuing a stand-in response, or
@@ -564,25 +572,21 @@ void addTrailRecord(int shutTransmit, int shutReceive, int shutSocket)
 //
 void createClientRspThread(SOCKET sock, int id)
 {
-	Sleep(3000); // Sleep 3 seconds
+	Sleep(4000); // Sleep 4 seconds
 	if (waitForRsp[id]) {
-
-		cout << "DEBUG: 3sec timeout exceeded for id " << id << ", issuing stand-in response." << endl;
-		waitForRsp[id] = false;
-
-		// Issue internal stand-in response, but allow a latent response for 20s
-		//cout << req[id] << endl;
-
-
-		//cout << getRspMsg(sock, requestID, studentName, foreignHostIpAddress, foreignHostServicePort, studentId, responseDelay, "Stand-in RSP", 2);
-
+		char temp[MAX_BUFSIZE] = "";
+		strcpy(temp, req[id]);
+		Message reqMsg = Message(temp);
+		string rspMsg = "RESPONSE TIMEOUT AFTER 4SEC FOR ID ";
+		rspMsg.append(std::to_string(id));
+		rspMsg.append(", THIS IS A STAND-IN RESPONSE");
+		outputStandInRsp(reqMsg, rspMsg);
 		return;
 	}
 	else {
 		Sleep(20000); // Sleep 20 more seconds
 		if (waitForRsp[id]) {
 			// Don't wait for this response anymore.. it will log as unsolicited if received
-			cout << "DEBUG: 20sec timeout exceeded for id " << id << ", dropping record." << endl;
 			waitForRsp[id] = false;
 		}
 	}
@@ -595,11 +599,10 @@ void xmtThread(SOCKET sock)
 {
 	for (int count = 0; count < numMsgs; ++count) {
         strcpy(req[count], const_cast<char*>(getReqMsg(sock, genRequestID(), "Normal REQ", 3).c_str())); // Copy message for later
-		cout << "DEBUG: Transmitting request id " << count << endl;
 		putReq(sock, req[count]);
 		thread createClientRspThread(createClientRspThread, sock, count); // Create timeout thread for rsp
 		createClientRspThread.detach();
-		Sleep(50);
+		Sleep(1000);
 	}
 }
 
@@ -608,75 +611,60 @@ void xmtThread(SOCKET sock)
 //
 void rcvThread(SOCKET sock)
 {
-	setBlocking(sock, true); // Threaded, so block
-
-
-
 	int count = 0;
-	while (count < numMsgs) {
-		cout << "DEBUG: Doing rcvThread() stuff..." << endl;
-		char temp[MAX_BUFSIZE] = "";
-		getRsp(sock, temp);
-		if (strlen(temp) > 0)
-		{
-			Message msg = Message(temp);
 
-			int requestId = msg.getRequestId();
-			
-			if (requestId >= numMsgs) {
-				cout << "DEBUG: Received out-of-range RSP with id: " << requestId << endl;
+	for (int count = 0; count < numMsgs; ++count)
+	{
+		char temp[MAX_BUFSIZE] = "";
+		long ticks = GetTickCount();
+
+		// Do nothing until response is received
+		while (!getRsp(sock, temp))
+		{
+			ZeroMemory(temp, sizeof(temp));
+			if (GetTickCount() - ticks > 24000) {
 				return;
 			}
+		}
 
-			if (!waitForRsp[requestId])
+		Message rspMsg = Message(temp);
+
+		int requestId = rspMsg.getRequestId();
+		Message reqMsg = Message(req[requestId]);
+
+		if (requestId >= numMsgs) {
+			outputUnsolicitedRsp(reqMsg, rspMsg);
+			continue;
+		}
+
+		if (!waitForRsp[requestId])
+		{
+			outputUnsolicitedRsp(reqMsg, rspMsg);
+			continue;
+		}
+		else
+		{
+			waitForRsp[requestId] = false;
+
+			// Awaiting a response, figure out if it's a normal or latent response
+			long msElapsed = GetTickCount() - reqMsg.getMsTimestamp();
+			if (msElapsed < 4000)
 			{
-				// If not waiting for response, issue it as unsolicited
-				cout << "DEBUG: rcv() received unsolicited RSP with id: " << requestId << endl;
-				/*
-				temp[strlen(temp) - 2] = 4;
-				cout << temp << endl;
-				*/
+				outputNormalRsp(reqMsg, rspMsg);
+				//continue;
 			}
-			else {
-				waitForRsp[requestId] = false;
-
-				// Awaiting a response, figure out if it's a normal or latent response
-				long msElapsed = GetTickCount() - msg.getMsTimestamp();
-				if (msElapsed < 3000)
-				{
-					// Normal response
-					cout << "DEBUG: rcv() creating a normal RSP for id: " << requestId << endl;
-					//cout << req[requestId] << endl;
-					//temp[strlen(temp) - 2] = 1;
-					//cout << temp << endl;
-
-				}
-				else if (msElapsed > 20000)
-				{
-					// Unsolicited RSP
-					cout << "DEBUG: rcv() creating unsolicited RSP for id: " << requestId << endl;
-					//temp[strlen(temp) - 2] = 4;
-					//cout << temp << endl;
-				}
-				else
-				{
-					cout << "DEBUG: rcv() creating a latent RSP for id: " << requestId << endl;
-				}
+			else if (msElapsed > 20000)
+			{
+				outputUnsolicitedRsp(reqMsg, rspMsg);
+				//continue;
 			}
-
-			/*
-				ResponseTypes:
-				1. Normal response received from server
-				2. Stand-in response generated by client
-				3. Latent response received from server
-				4. Spurious or unsolicited response received from server
-			*/
-
-			++count;
+			else
+			{
+				outputLatentRsp(reqMsg, rspMsg);
+				//continue;
+			}
 		}
 	}
-
-	setBlocking(sock, false);
 }
 
 int main()
@@ -686,9 +674,10 @@ int main()
         return 0;
     }
 
-    //freopen("out.txt", "w", stdout); // Output to file
+    freopen("out.txt", "w", stdout); // Output to file
 
     SOCKET sock = connectTo(DEFAULT_ADDR, DEFAULT_PORT, 3);
+	setBlocking(sock, false);
 
     if (sock == INVALID_SOCKET) {
         cout << "DEBUG: Unable to connect to server, shutting down..." << endl;
@@ -700,8 +689,8 @@ int main()
 		waitForRsp[count] = true;
 	}
 
-	thread xmtThread(xmtThread, sock);
 	thread rcvThread(rcvThread, sock);
+	thread xmtThread(xmtThread, sock);
 	xmtThread.join();
 	rcvThread.join();
 

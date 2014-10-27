@@ -16,9 +16,9 @@ void putReq(SOCKET sock, char * inStr)
      xmt(sock, inStr);
 }
 
-void getReq(SOCKET sock, char * outStr)
+bool getReq(SOCKET sock, char * outStr)
 {
-	rcv(sock, outStr);
+	return rcv(sock, outStr);
 }
 
 void putRsp(SOCKET sock, char * inStr)
@@ -26,9 +26,9 @@ void putRsp(SOCKET sock, char * inStr)
     xmt(sock, inStr);
 }
 
-void getRsp(SOCKET sock, char * outStr)
+bool getRsp(SOCKET sock, char * outStr)
 {
-	rcv(sock, outStr);
+	return rcv(sock, outStr);
 }
 
 //
@@ -98,7 +98,7 @@ bool xmt(SOCKET sock, CHAR * inStr)
 //
 // Receive transaction data and return string.
 //
-void rcv(SOCKET sock, char * outStr)
+bool rcv(SOCKET sock, char * outStr)
 {
     string s = "";
 
@@ -115,22 +115,16 @@ void rcv(SOCKET sock, char * outStr)
             bytesLeft -= recv(sock, (char*)&buffer, sizeof(buffer), 0);
             s.append(buffer);
         } while (bytesLeft > 0);
-    }
-    else if (inBytes == WSAEWOULDBLOCK) // Nothing to receive, don't block
-    {
 		strcpy(outStr, const_cast<char*>(s.c_str()));
+		return true;
     }
-    else if (inBytes == 0) // Shutdown successful
-    {
-		strcpy(outStr, const_cast<char*>(s.c_str()));
-    }
-    else // An error occurred
-    {
-        cout << "DEBUG: Error receiving: " << WSAGetLastError() << ", shutting down connection." << endl;
-        shutdownSocket(sock);
+	else if (inBytes != WSAEWOULDBLOCK && inBytes != 0) // An error occurred
+	{
+        //cout << "DEBUG: Error receiving: " << WSAGetLastError() << ", shutting down connection." << endl;
+        //shutdownSocket(sock);
     }
 
-	strcpy(outStr, const_cast<char*>(s.c_str()));
+	return false;
 }
 
 //

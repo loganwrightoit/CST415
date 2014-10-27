@@ -12,15 +12,6 @@ using namespace std;
 
 Message::Message(char * msg)
 {
-	/*
-		char * messageType[4];
-	char * studentName[21];
-	char * studentId[8];
-	char * foreignHostIpAddress[16];
-	char * serverIpAddress[16];
-	char * responseId[21];
-	*/
-
 	char * pch;
 	pch = strtok(msg, "|");
 	messageType = new char[4];
@@ -58,12 +49,14 @@ Message::Message(char * msg)
 
 Message::~Message()
 {
+	/*
 	delete[] messageType;
 	delete[] studentName;
 	delete[] studentId;
 	delete[] foreignHostIpAddress;
 	delete[] serverIpAddress;
 	delete[] responseId;
+	*/
 }
 
 long Message::getMsTimestamp()
@@ -76,7 +69,17 @@ int Message::getRequestId()
 	return requestId;
 }
 
-const char * Message::to_cstr()
+void Message::setResponseId(char * buffer)
+{
+	strcpy(responseId, buffer);
+}
+
+void Message::setResponseType(int type)
+{
+	responseType = type;
+}
+
+string Message::to_string()
 {
 	string s;
 	s.append(messageType);
@@ -86,6 +89,7 @@ const char * Message::to_cstr()
 	s.append(std::to_string(requestId));
 	s.append("|");
 	s.append(studentName);
+	s.append("|");
 	s.append(studentId);
 	s.append("|");
 	s.append(std::to_string(responseDelay));
@@ -105,5 +109,5 @@ const char * Message::to_cstr()
 	s.append(std::to_string(responseType));
 	s.append("|");
 
-	return s.c_str();
+	return s;
 }

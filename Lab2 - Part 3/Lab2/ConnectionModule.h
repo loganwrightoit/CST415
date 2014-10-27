@@ -1,11 +1,11 @@
 #pragma once
 
 bool xmt(SOCKET sock, char * inStr);
-void rcv(SOCKET sock, char * outStr);
+bool rcv(SOCKET sock, char * outStr);
 void putReq(SOCKET sock, char * inStr);
-void getReq(SOCKET sock, char * outStr);
+bool getReq(SOCKET sock, char * outStr);
 void putRsp(SOCKET sock, char * inStr);
-void getRsp(SOCKET sock, char * outStr);
+bool getRsp(SOCKET sock, char * outStr);
 
 bool initWinsock();
 void setBlocking(SOCKET sock, bool block);

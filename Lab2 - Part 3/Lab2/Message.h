@@ -1,4 +1,6 @@
 #pragma once
+#include <string>
+
 class Message
 {
 public:
@@ -9,7 +11,10 @@ public:
 	long getMsTimestamp();
 	int getRequestId();
 
-	const char * to_cstr();
+	void setResponseId(char * buffer);
+	void setResponseType(int type);
+
+	std::string to_string();
 
 private:
 
