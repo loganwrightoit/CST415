@@ -8,6 +8,7 @@
 #include <atlstr.h>
 #include <thread>
 #include "ConnectionModule.h"
+#include "Message.h"
 
 using namespace std;
 
@@ -17,17 +18,23 @@ using namespace std;
 #define DEFAULT_PORT 2605
 #define MAX_BUFSIZE 144
 
+const int numMsgs = 100;
 int requestID = 0;
+
+// Store request messages to match them up with responses later
+static char req[numMsgs][MAX_BUFSIZE];
+
+// True if waiting for a response for RequestID
+static bool waitForRsp[numMsgs];
 
 int genRequestID()
 {
 	return requestID++;
 }
 
-string getMessage(SOCKET sock)
+string getReqMsg(SOCKET sock, int requestId, char * studentData, int scenarioNo)
 {
 	string msg = "";
-	int reqId = genRequestID();
 
 	/*
 	Field Name: MessageType
@@ -72,7 +79,7 @@ string getMessage(SOCKET sock)
 	message and in the same positions.
 	*/
 
-	msg.append(std::to_string(reqId));
+	msg.append(std::to_string(requestId));
 	msg.append("|");
 	
 	/*
@@ -115,7 +122,7 @@ string getMessage(SOCKET sock)
 	server is to delay before sending a response.  Maximum of 3000 ms.
 	*/
 
-	if (reqId == 25 || reqId == 50 || reqId == 75) {
+	if (requestId == 25 || requestId == 50 || requestId == 75) {
 		msg.append("4000");
 	} else {
 		msg.append("0");
@@ -212,7 +219,9 @@ string getMessage(SOCKET sock)
 	not be returned in the response.
 	*/
 
-	msg.append("This is my message!");
+	char stuData[19] = "";
+	strcpy(stuData, studentData);
+	msg.append(stuData);
 	msg.append("|");
 
 	/*
@@ -229,8 +238,8 @@ string getMessage(SOCKET sock)
 		Include 3 for last portion.
 	*/
 
-	msg.append("3");
-	msg.append("|"); // End of message
+	msg.append(std::to_string(scenarioNo));
+	msg.append("|");
 
 	/*
 	Maximum length of request message 14610
@@ -240,71 +249,276 @@ string getMessage(SOCKET sock)
     return msg;
 }
 
+//
+// Returns response message.
+//
+string getRspMsg(SOCKET sock, int inRequestId, char * inStudentName, char * inClientIp,
+	int inClientPort, char * inStudentId, int inResponseDelay, char * inResponseId, int inResponseType)
+{
+	string msg = "";
+
+	/*
+	Field Name: MessageType
+	Data type: ASCII Alphanumeric fixed “RSP”
+	Justification: Any
+	Length: 3
+	Begin position: 2
+	End position: 4
+	Description: This will be a fixed three-character sequence of “RSP”, all in
+	upper case.
+	*/
+
+	msg.append("RSP");
+	msg.append("|");
+
+	/*
+	Field Name: msTimeStamp
+	Data type: ASCII Numeric
+	Justification: Right, space or zero filled to the left
+	Length: Variable with a maximum length of 10
+	Begin position: 6
+	End position: Variable
+	Description: A millisecond time stamp value from a running elapsed system
+	timer on the server
+	*/
+
+	DWORD timestamp = GetTickCount();
+	msg.append(std::to_string(timestamp));
+	msg.append("|");
+
+	/*
+	Field Name: RequestID
+	Data type: ASCII Alphanumeric
+	Justification: Any
+	Length Variable with a maximum length of 20
+	Begin position: Variable
+	End position: Variable
+	Description: Data from the RequestID field of the client’s request message
+	*/
+
+	msg.append(std::to_string(inRequestId));
+	msg.append("|");
+
+	/*
+	Field Name: StudentName
+	Data type: ASCII Text
+	Justification: Left, space filled to the right
+	Length: Variable with a maximum length of 20
+	Begin position: Variable
+	End position: Variable
+	Description: Data from the StudentName field of the client’s request message
+	*/
+
+	msg.append(inStudentName);
+	msg.append("|");
+
+	/*
+	Field Name: Student ID
+	Data type: ASCII Aphanumeric
+	Justification: Any
+	Length: Variable with a maximum length of 7
+	Begin position: Variable
+	End position: Variable
+	Description: Data from the StudentID field of the client’s request message
+	*/
+
+	msg.append(inStudentId);
+	msg.append("|");
+
+	/*
+	Field Name: ResponseDelay
+	Data type: ASCII Numeric
+	Justification: Right, space or zero filled to the left
+	Length: Variable with a maximum length of 5
+	Begin position: Variable
+	End position: Variable
+	Description: Data from the ResponseDelay field of the client’s request
+	message
+	*/
+
+	msg.append(std::to_string(inResponseDelay));
+	msg.append("|");
+
+	/*
+	Field Name: ClientIPAddress
+	Data type: ASCII Alphanumeric
+	Justification: Left, space filled to the right
+	Length: Variable with a maximum length of 15
+	Begin position: Variable
+	End position: Variable
+	Description: The IPv4 address of the server’s foreign host in dotted decimal
+	notation
+	*/
+
+	msg.append(inClientIp);
+	msg.append("|");
+
+	/*
+	Field Name: ClientServicePort
+	Data type: ASCII Numeric
+	Justification: Right, zero or space filled to the left
+	Length: Variable with a maximum length of 5
+	Begin position: Variable
+	End position: Variable
+	Description: The server’s foreign host’s service port number, should always be
+	2605.
+	*/
+
+	msg.append(std::to_string(inClientPort));
+	msg.append("|");
+
+	/*
+	Field Name: ServerSocketNumber
+	Data type: ASCII Numeric
+	Justification: Right, zero or space filled to the left
+	Length: Variable with a maximum length of 5
+	Begin position: Variable
+	End position: Variable
+	Description: The server’s TCP socket number.
+	*/
+
+	msg.append(std::to_string(sock));
+	msg.append("|");
+
+	/*
+	Field Name: ServerIPAddress
+	Data type: ASCII Numeric
+	Justification: Right, zero or space filled to the left
+	Length: Variable with a maximum length of 15
+	Begin position: Variable
+	End position: Variable
+	Description: The IPv4 address of the server in dotted decimal notation.
+	*/
+
+	char serverIp[INET_ADDRSTRLEN] = "NULL";
+	struct sockaddr_in sin;
+	int addrlen = sizeof(sin);
+	getsockname(sock, (struct sockaddr *)&sin, &addrlen);
+	int local_port = ntohs(sin.sin_port);
+
+	inet_ntop(AF_INET, &sin.sin_addr, serverIp, sizeof(serverIp));
+
+	msg.append(serverIp);
+	msg.append("|");
+
+	/*
+	Field Name: ServerServicePort
+	Data type: ASCII Numeric
+	Justification: Right, zero or space filled to the left
+	Length: Variable with a maximum length of 5
+	Begin position: Variable
+	End position: Variable
+	Description: The server’s service port number, should be 2605.
+	*/
+
+	msg.append(std::to_string(local_port));
+	msg.append("|");
+
+	/*
+	Field Name: ResponseID
+	Data type: ASCII Alphanumeric
+	Justification: Any
+	Length: Variable with a maximum length of 20
+	Begin position: Variable
+	End position: Variable
+	Description: A unique value generated by the server to exclusively identify
+	responses.
+	*/
+	
+	msg.append(inResponseId);
+	msg.append("|");
+
+	/*
+	Field Name: ResponseType
+	Data type: ASCII Numeric
+	Justification: Any
+	Length: 1
+	Begin position: Variable
+	End position Variable
+	Description: This response field is to be populated by the client to indicate the
+	following:
+		1. Normal response received from server
+		2. Stand-in response generated by client
+		3. Latent response received from server
+		4. Spurious or unsolicited response received from server
+	*/
+
+	msg.append(std::to_string(inResponseType));
+	msg.append("|");
+
+	/*
+	Maximum length of request message 14610
+	Maximum binary value in TCP header field = 14410, or HEX 0090
+	*/
+
+	return msg;
+}
+
 void addTrailRecord(int shutTransmit, int shutReceive, int shutSocket)
 {
-    string msg = "";
+	string msg = "";
 
-    std::time_t rawtime;
-    std::tm* timeinfo;
-    char buffer[80];
-    std::time(&rawtime);
-    timeinfo = std::localtime(&rawtime);
+	std::time_t rawtime;
+	std::tm* timeinfo;
+	char buffer[80];
+	std::time(&rawtime);
+	timeinfo = std::localtime(&rawtime);
 
-    /*
-    Field Name : Date
-    Data type : ASCII, in the form of MMDDYYYY
-    Justification : Any
-    Length : 8
-    Begin position : 0
-    End position: 7
-    Description:  Date of completion of lab scenario
-    */
+	/*
+	Field Name : Date
+	Data type : ASCII, in the form of MMDDYYYY
+	Justification : Any
+	Length : 8
+	Begin position : 0
+	End position: 7
+	Description:  Date of completion of lab scenario
+	*/
 
-    std::strftime(buffer, 80, "%m%d%Y", timeinfo);
-    msg.append(buffer);
-    msg.append("|");
+	std::strftime(buffer, 80, "%m%d%Y", timeinfo);
+	msg.append(buffer);
+	msg.append("|");
 
-    /*
-    Field Name:  Time
-    Data type:  ASCII, in the form of HHMMSS [24 hr. notation]
-    Justification: Any
-    Length:  6
-    Begin position:  9
-    End position: 14
-    Description:  Time of completion of lab scenario
-    */
+	/*
+	Field Name:  Time
+	Data type:  ASCII, in the form of HHMMSS [24 hr. notation]
+	Justification: Any
+	Length:  6
+	Begin position:  9
+	End position: 14
+	Description:  Time of completion of lab scenario
+	*/
 
-    std::strftime(buffer, 80, "%H%M%S", timeinfo);
-    msg.append(buffer);
-    msg.append("|");
+	std::strftime(buffer, 80, "%H%M%S", timeinfo);
+	msg.append(buffer);
+	msg.append("|");
 
-    /*
-    Field Name:  RcvShutdownStatus
-    Data type:  ASCII Numeric
-    Justification: Right, space or zero filled to the left
-    Length:  5
-    Begin position:  16
-    End position: 20
-    Description:  Return status from issuing a shutdown of the receive half session.
-    Insert a vertical ‘|’ character at position 21
-    */
+	/*
+	Field Name:  RcvShutdownStatus
+	Data type:  ASCII Numeric
+	Justification: Right, space or zero filled to the left
+	Length:  5
+	Begin position:  16
+	End position: 20
+	Description:  Return status from issuing a shutdown of the receive half session.
+	Insert a vertical ‘|’ character at position 21
+	*/
 
 	msg.append(std::to_string(shutTransmit));
-    msg.append("|");
+	msg.append("|");
 
-    /*
-    Field Name:  XmtShutdownStatus
-    Data type:  ASCII Numeric
-    Justification: Right, space or zero filled to the left
-    Length:  5
-    Begin position:  22
-    End position: 26
-    Description:  Return status from issuing a shutdown of the transmit half
-    session.
-    */
+	/*
+	Field Name:  XmtShutdownStatus
+	Data type:  ASCII Numeric
+	Justification: Right, space or zero filled to the left
+	Length:  5
+	Begin position:  22
+	End position: 26
+	Description:  Return status from issuing a shutdown of the transmit half
+	session.
+	*/
 
 	msg.append(std::to_string(shutReceive));
-    msg.append("|");
+	msg.append("|");
 
 	/*
 	Field Name : CloseStatus
@@ -318,267 +532,139 @@ void addTrailRecord(int shutTransmit, int shutReceive, int shutSocket)
 
 	msg.append(std::to_string(shutSocket));
 
-    cout << msg << endl;
+	cout << msg << endl;
 }
 
-void responseFormat()
+
+void outputNormalRsp(Message reqMsg, Message rspMsg)
 {
-	/*
-	Field Name: TCPHeader
-	Data type Binary (Network, Big Endian, Byte Order)
-	Justification: Right
-	Length: 2
-	Begin position: 0
-	End position 1
-	Description: Binary value that represents the length of the response message,
-	excluding these two bytes.
-
-	Field Name: MessageType
-	Data type: ASCII Alphanumeric fixed “RSP”
-	Justification: Any
-	Length: 3
-	Begin position: 2
-	End position: 4
-	Description: This will be a fixed three-character sequence of “RSP”, all in
-	upper case.
-
-	Insert a vertical ‘|’ character at position 5
-
-	Field Name: msTimeStamp
-	Data type: ASCII Numeric
-	Justification: Right, space or zero filled to the left
-	Length: Variable with a maximum length of 10
-	Begin position: 6
-	End position: Variable
-	Description: A millisecond time stamp value from a running elapsed system
-	timer on the server
-
-	Insert a vertical ‘|’ character in next position as a field separator
-
-	Field Name: RequestID
-	Data type: ASCII Alphanumeric
-	Justification: Any
-	Length Variable with a maximum length of 20
-	Begin position: Variable
-	End position: Variable
-	Description: Data from the RequestID field of the client’s request message
-
-	Insert a vertical ‘|’ character in next position as a field separator
-
-	Field Name: StudentName
-	Data type: ASCII Text
-	Justification: Left, space filled to the right
-	Length: Variable with a maximum length of 20
-	Begin position: Variable
-	End position: Variable
-	Description: Data from the StudentName field of the client’s request message
-
-	Insert a vertical ‘|’ character in next position as a field separator
-
-	Field Name: Student ID
-	Data type: ASCII Aphanumeric
-	Justification: Any
-	Length: Variable with a maximum length of 7
-	Begin position: Variable
-	End position: Variable
-	Description: Data from the StudentID field of the client’s request message
-
-	Insert a vertical ‘|’ character in next position as a field separator
-
-	Field Name: ResponseDelay
-	Data type: ASCII Numeric
-	Justification: Right, space or zero filled to the left
-	Length: Variable with a maximum length of 5
-	Begin position: Variable
-	End position: Variable
-	Description: Data from the ResponseDelay field of the client’s request
-	message
-
-	Insert a vertical ‘|’ character in next position as a field separator
-
-	Field Name: ForeignHostIPAddress
-	Data type: ASCII Alphanumeric
-	Justification: Left, space filled to the right
-	Length: Variable with a maximum length of 15
-	Begin position: Variable
-	End position: Variable
-	Description: The IPv4 address of the server’s foreign host in dotted decimal
-	notation
-
-	Insert a vertical ‘|’ character in next position as a field separator
-
-	Field Name: ForeignHostServicePort
-	Data type: ASCII Numeric
-	Justification: Right, zero or space filled to the left
-	Length: Variable with a maximum length of 5
-	Begin position: Variable
-	End position: Variable
-	Description: The server’s foreign host’s service port number, should always be
-	2605.
-
-	Insert a vertical ‘|’ character in next position as a field separator
-
-	Field Name: ServerSocketNumber
-	Data type: ASCII Numeric
-	Justification: Right, zero or space filled to the left
-	Length: Variable with a maximum length of 5
-	Begin position: Variable
-	End position: Variable
-	Description: The server’s TCP socket number.
-
-	Insert a vertical ‘|’ character in next position as a field separator
-
-	Field Name: ServerIPAddress
-	Data type: ASCII Numeric
-	Justification: Right, zero or space filled to the left
-	Length: Variable with a maximum length of 15
-	Begin position: Variable
-	End position: Variable
-	Description: The IPv4 address of the server in dotted decimal notation.
-
-	Insert a vertical ‘|’ character in next position as a field separator
-
-	Field Name: ServerServicePort
-	Data type: ASCII Numeric
-	Justification: Right, zero or space filled to the left
-	Length: Variable with a maximum length of 5
-	Begin position: Variable
-	End position: Variable
-	Description: The server’s service port number, should be 2605.
-
-	Insert a vertical ‘|’ character in next position as a field separator
-
-	Field Name: ResponseID
-	Data type: ASCII Alphanumeric
-	Justification: Any
-	Length: Variable with a maximum length of 20
-	Begin position: Variable
-	End position: Variable
-	Description: A unique value generated by the server to exclusively identify
-	responses.
-
-	Insert a vertical ‘|’ character in next position as a field separator
-
-	Field Name: ResponseType
-	Data type: ASCII Numeric
-	Justification: Any
-	Length: 1
-	Begin position: Variable
-	End position Variable
-	Description: This response field is to be populated by the client to indicate the
-	following:
-		1. Normal response received from server
-		2. Stand-in response generated by client
-		3. Latent response received from server
-		4. Spurious or unsolicited response received from server
-
-	Insert a vertical ‘|’ character in next position as a field separator
-
-	Maximum response length = 14610
-	Maximum binary value in TCP header field = 14410, or HEX 0090
-	*/
+	cout << reqMsg.to_string() << endl;
+	cout << rspMsg.to_string() << endl;
+	cout << "---------------------------------------------------------------------" << endl;
 }
 
-/*
-    Part 3 instructions:
+void outputStandInRsp(Message reqMsg, string rspMsg)
+{
+	cout << reqMsg.to_string() << endl;
+	cout << rspMsg << endl;
+	cout << "---------------------------------------------------------------------" << endl;
+}
 
-    3.2.6.  Client is to populate the “ResponseDelay” field of at least two request messages
-            with a millisecond value of an ASCII 4000, to cause a latent response after it has
-            issued an internal stand-in response.
-            - DONE
+void outputLatentRsp(Message reqMsg, Message rspMsg)
+{
+	cout << reqMsg.to_string() << endl;
+	rspMsg.setResponseType(3);
+	cout << rspMsg.to_string() << endl;
+	cout << "---------------------------------------------------------------------" << endl;
+}
 
-    3.2.7.  Client must issue a stand-in response after a pending request has waited no less
-            than three seconds and no longer than four seconds for a matching response.
-            Client will log the request and stand-in response and note in the “ResponseType”
-            field of the response message that this is a stand-in response.
+void outputUnsolicitedRsp(Message reqMsg, Message rspMsg)
+{
+	cout << reqMsg.to_string() << endl;
+	rspMsg.setResponseType(4);
+	cout << rspMsg.to_string() << endl;
+	cout << "---------------------------------------------------------------------" << endl;
+}
 
-    3.2.8.  When client detects a latent response, it must match it to the proper original
-            request and record both to the log file, and note in the “ResponseType” field of the
-            response message that this is a latent response.
-
-    3.2.9.  In the event client receives an unsolicited response (e.g. a latent response after
-            waiting the additional 20 seconds, or simply a spurious response from the server)
-            client is to log the response (w/o its matching request) and note in the
-            “ResponseType” field of the response message that this is an unsolicited response.
-*/
-
-// Store request messages to match them up with responses later
-char req[100][MAX_BUFSIZE];
+//
+// Waits a preset amount of time before issuing a stand-in response, or
+// dropping the response from the expected responses.
+//
+void createClientRspThread(SOCKET sock, int id)
+{
+	Sleep(4000); // Sleep 4 seconds
+	if (waitForRsp[id]) {
+		char temp[MAX_BUFSIZE] = "";
+		strcpy(temp, req[id]);
+		Message reqMsg = Message(temp);
+		string rspMsg = "RESPONSE TIMEOUT AFTER 4SEC FOR ID ";
+		rspMsg.append(std::to_string(id));
+		rspMsg.append(", THIS IS A STAND-IN RESPONSE");
+		outputStandInRsp(reqMsg, rspMsg);
+		return;
+	}
+	else {
+		Sleep(20000); // Sleep 20 more seconds
+		if (waitForRsp[id]) {
+			// Don't wait for this response anymore.. it will log as unsolicited if received
+			waitForRsp[id] = false;
+		}
+	}
+}
 
 //
 // Transmits request numReq times.
 //
-void xmtThread(SOCKET sock, int numReq)
+void xmtThread(SOCKET sock)
 {
-	for (int count = 0; count < numReq; ++count) {
-        strcpy(req[count], const_cast<char*>(getMessage(sock).c_str())); // Copy message for later
+	for (int count = 0; count < numMsgs; ++count) {
+        strcpy(req[count], const_cast<char*>(getReqMsg(sock, genRequestID(), "Normal REQ", 3).c_str())); // Copy message for later
 		putReq(sock, req[count]);
-		Sleep(50);
+		thread createClientRspThread(createClientRspThread, sock, count); // Create timeout thread for rsp
+		createClientRspThread.detach();
+		Sleep(1000);
 	}
 }
 
 //
 // Receives response numRsp times.
 //
-void rcvThread(SOCKET sock, int numRsp)
+void rcvThread(SOCKET sock)
 {
-	setBlocking(sock, true); // Threaded, so block
-
 	int count = 0;
-	while (count < numRsp) {
+
+	for (int count = 0; count < numMsgs; ++count)
+	{
 		char temp[MAX_BUFSIZE] = "";
-		getRsp(sock, temp);
-        if (strlen(temp) > 0)
-        {
-            char * pch;
-            pch = strtok(temp, "|");
-            char messageType[4] = "";               // MessageType
-            strcpy(messageType, pch);
-            pch = strtok(NULL, "|");
-            long msTimeStamp = atol(pch);           // msTimeStamp
-            pch = strtok(NULL, "|");
-            int requestId = atoi(pch);              // RequestID
-            pch = strtok(NULL, "|");
-            char studentName[21] = "";              // StudentName
-            strcpy(studentName, pch);
-            pch = strtok(NULL, "|");
-            char studentId[8] = "";                 // StudentID
-            strcpy(studentId, pch);
-            pch = strtok(NULL, "|");
-            int responseDelay = atoi(pch);          // ResponseDelay
-            pch = strtok(NULL, "|");
-            char foreignHostIpAddress[16] = "";     // ForeignHostIPAddress
-            strcpy(foreignHostIpAddress, pch);
-            pch = strtok(NULL, "|");
-            int foreignHostServicePort = atoi(pch); // ForeignHostServicePort
-            pch = strtok(NULL, "|");
-            int serverSocketNumber = atoi(pch);     // ServerSocketNumber
-            pch = strtok(NULL, "|");
-            int serverIpAddress = atoi(pch);        // ServerIPAddress
-            pch = strtok(NULL, "|");
-            int serverServicePort = atoi(pch);      // ServerServicePort
-            pch = strtok(NULL, "|");
-            char responseId[21] = "";               // ResponseID
-            strcpy(responseId, pch);
-            pch = strtok(NULL, "|");
-            int responseType = atoi(pch);           // ResponseType
+		long ticks = GetTickCount();
 
-            /*
-                ResponseTypes:
-                    1. Normal response received from server
-                    2. Stand-in response generated by client
-                    3. Latent response received from server
-                    4. Spurious or unsolicited response received from server
-            */
+		// Do nothing until response is received
+		while (!getRsp(sock, temp))
+		{
+			ZeroMemory(temp, sizeof(temp));
+			if (GetTickCount() - ticks > 24000) {
+				return;
+			}
+		}
 
-            cout << "DEBUG: Received ID: " << requestId << " and status: " << responseType << endl;
+		Message rspMsg = Message(temp);
 
-			//cout << temp << endl;
-			++count;
+		int requestId = rspMsg.getRequestId();
+		Message reqMsg = Message(req[requestId]);
+
+		if (requestId >= numMsgs) {
+			outputUnsolicitedRsp(reqMsg, rspMsg);
+			continue;
+		}
+
+		if (!waitForRsp[requestId])
+		{
+			outputUnsolicitedRsp(reqMsg, rspMsg);
+			continue;
+		}
+		else
+		{
+			waitForRsp[requestId] = false;
+
+			// Awaiting a response, figure out if it's a normal or latent response
+			long msElapsed = GetTickCount() - reqMsg.getMsTimestamp();
+			if (msElapsed < 4000)
+			{
+				outputNormalRsp(reqMsg, rspMsg);
+				//continue;
+			}
+			else if (msElapsed > 20000)
+			{
+				outputUnsolicitedRsp(reqMsg, rspMsg);
+				//continue;
+			}
+			else
+			{
+				outputLatentRsp(reqMsg, rspMsg);
+				//continue;
+			}
 		}
 	}
-
-	setBlocking(sock, false);
 }
 
 int main()
@@ -588,24 +674,27 @@ int main()
         return 0;
     }
 
-    //freopen("out.txt", "w", stdout); // Output to file
+    freopen("out.txt", "w", stdout); // Output to file
 
     SOCKET sock = connectTo(DEFAULT_ADDR, DEFAULT_PORT, 3);
+	setBlocking(sock, false);
 
     if (sock == INVALID_SOCKET) {
         cout << "DEBUG: Unable to connect to server, shutting down..." << endl;
         return 0;
     }
 
-	int numMsgs = 1;
+	for (int count = 0; count < numMsgs; ++count)
+	{
+		waitForRsp[count] = true;
+	}
 
-	thread xmtThread(xmtThread, sock, numMsgs);
-	thread rcvThread(rcvThread, sock, numMsgs);
-
+	thread rcvThread(rcvThread, sock);
+	thread xmtThread(xmtThread, sock);
 	xmtThread.join();
 	rcvThread.join();
 
-    // Try receiving for another 20 seconds to check for latent and/or spurious responses
+	Sleep(24000); // Let timeout threads finish up
 
     int* shutdownStatus = shutdownSocket(sock);
     addTrailRecord(shutdownStatus[0], shutdownStatus[1], shutdownStatus[2]);
