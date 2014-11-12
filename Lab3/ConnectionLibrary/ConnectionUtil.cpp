@@ -129,7 +129,7 @@ bool rcv(SOCKET sock, char * outStr)
 		}
 
 		return true;
-	}	
+	}
 
     return false;
 }
