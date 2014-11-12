@@ -100,6 +100,13 @@ bool xmt(SOCKET sock, CHAR * inStr)
 			total += result;
 			remaining -= result;
 		}
+        else
+        {
+            shutdown(sock, SD_BOTH);
+            closesocket(sock);
+            sock = INVALID_SOCKET;
+            return false;
+        }
     }
 
 	delete[] toSend;
@@ -130,6 +137,13 @@ bool rcv(SOCKET sock, char * outStr)
 
 		return true;
 	}
+    else if (inBytes == 0)
+    {
+        shutdown(sock, SD_BOTH);
+        closesocket(sock);
+        sock = INVALID_SOCKET;
+        return false;
+    }
 
     return false;
 }

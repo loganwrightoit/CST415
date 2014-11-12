@@ -106,6 +106,9 @@ int main(int argc, char* argv[])
 	xmtThread.join();
 	rcvThread.join();
 
+    shutdown(sock, SD_BOTH);
+    closesocket(sock);
+
     int* shutdownStatus = shutdownSocket(sock);
     addTrailRecord(shutdownStatus[0], shutdownStatus[1], shutdownStatus[2]);
     delete[] shutdownStatus;
