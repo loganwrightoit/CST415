@@ -12,10 +12,12 @@
 using namespace std;
 
 #pragma comment (lib, "Ws2_32.lib")
+#pragma comment(lib, "IPHLPAPI.lib")
 
-#define DEFAULT_PORT 2605
 #define MAX_MSG_SIZE 144
 
+char ipAddr[16] = "";
+int portNum = 0;
 int rspId = 0;
 
 // Forward declarations
@@ -28,19 +30,21 @@ string getRspMessage(SOCKET sock, char * req);
 //
 int main(int argc, char* argv[])
 {
-    /*
     bool validArgs = true;
-    int numClients = 1;
 
     if (argc == 3)
     {
-        if (argv[1] == "-numClients")
+        for (int arg = 1; arg < argc && validArgs; ++arg)
         {
-            numClients = atoi(argv[2]);
-        }
-        else
-        {
-            validArgs = false;
+            if (strcmp(argv[arg], "-port") == 0)
+            {
+                portNum = atoi(argv[++arg]);
+                //cout << "Port number: " << portNum << endl;
+            }
+            else
+            {
+                validArgs = false;
+            }
         }
     }
     else
@@ -50,10 +54,9 @@ int main(int argc, char* argv[])
 
     if (!validArgs)
     {
-        cout << "ERROR: arguments required: -numClients <num> (threads execute once numClients have connected)" << endl;
+        cout << "ERROR: arguments required: -port <port number>" << endl;
         return 1;
     }
-    */
 
     if (!initWinsock())
     {
@@ -68,6 +71,16 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    // Grab local IP
+    char szBuffer[1024];
+    gethostname(szBuffer, sizeof(szBuffer));
+    struct hostent *host = gethostbyname(szBuffer);
+    struct in_addr addr;
+    memcpy(&addr, host->h_addr_list[0], sizeof(struct in_addr));
+
+    cout << "Server started successfully." << endl;
+    cout << "IP: " << inet_ntoa(addr) << endl;
+    cout << "Port: " << portNum << endl;
     cout << "Listening for connections..." << endl;
         
     while (1)
@@ -97,7 +110,7 @@ SOCKET GetListenSock()
     sockaddr_in addr;
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    addr.sin_port = htons(DEFAULT_PORT);
+    addr.sin_port = htons(portNum);
 
     if (::bind(sock, (LPSOCKADDR)&addr, sizeof(addr)) == SOCKET_ERROR)
     {
@@ -118,11 +131,18 @@ SOCKET GetListenSock()
 unsigned __stdcall ClientSession(void *data)
 {
     SOCKET sock = (SOCKET)data;
+    int sockNum = sock;
 
-    cout << "New client connected on socket " << sock << "." << endl;
+    cout << "Client connected on socket " << sock << endl;
 
     while (1)
     {
+        if (sock == INVALID_SOCKET)
+        {
+            cout << "Client disconnected on socket " << sockNum << endl;
+            return 0;
+        }
+
         // Get request message
         char req[MAX_MSG_SIZE] = "";
 
@@ -137,7 +157,7 @@ unsigned __stdcall ClientSession(void *data)
             break;
     }
 
-    return 0;
+    return 1;
 }
 
 //
@@ -190,7 +210,7 @@ string getRspMessage(SOCKET sock, char * req)
     upper case.
     */
 
-    msg.append("REQ");
+    msg.append("RSP");
     msg.append("|");
 
     /*
