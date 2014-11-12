@@ -6,7 +6,7 @@ using namespace std;
 
 #pragma comment (lib, "Ws2_32.lib")
 
-#define DEFAULT_BUFLEN 256
+#define MAX_BUFSIZE 144
 
 WSADATA wsaData;
 struct sockaddr_in clientService;
@@ -60,6 +60,8 @@ int* shutdownSocket(SOCKET sock)
 //
 bool xmt(SOCKET sock, CHAR * inStr)
 {
+	string str = "";
+
     /*
     Field Name: TCPHeader
     Data type Binary (Network, Big Endian Bit Order)
@@ -72,34 +74,33 @@ bool xmt(SOCKET sock, CHAR * inStr)
     */
 
     int inSize = strlen(inStr);
-    char * toSend = new char[strlen(inStr) + 2];
 
     // Prepend message with two-byte length header
-    toSend[0] = (inSize & 0xff00) >> 8;
-    toSend[1] = (inSize & 0xff);
+	BYTE bytes[2] = { (inSize & 0xff00) >> 8, inSize & 0xff };
+	str.append((const char*)bytes, 2);
 
     // Append data
-    memcpy_s(toSend + 2, inSize + 2, inStr, inSize);
+	str.append(inStr);
 
-    // Send the data
-    int remaining = strlen(toSend);
+	char * toSend = new char[strlen(inStr) + 2];
+	memcpy(toSend, str.c_str(), str.length());
+
+	int remaining = str.length();
     int total = 0;
     while (remaining > 0)
     {
-        int result = send(sock, toSend + total, min(remaining, DEFAULT_BUFLEN), 0);
-        bool blocking = WSAGetLastError() == WSAEWOULDBLOCK;
-        if (result == SOCKET_ERROR && !blocking)
+		int result = send(sock, toSend + total, min(remaining, MAX_BUFSIZE), 0);
+        if (result == SOCKET_ERROR)
         {
             delete[] toSend;
             return false;
         }
-        if (!blocking)
-        {
-            total += result;
-            remaining -= result;
-        }
+
+        total += result;
+        remaining -= result;
     }
 
+	delete[] toSend;
     return true;
 }
 
@@ -110,26 +111,22 @@ bool rcv(SOCKET sock, char * outStr)
 {
     u_short messageLength;
     int inBytes = recv(sock, (char*)&messageLength, sizeof(messageLength), 0);
-    int total = 0;
-    while (total < inBytes)
-    {
-        int size = min((int)(inBytes - total), DEFAULT_BUFLEN);
-        int result = recv(sock, (char*)(outStr + total), size, 0);
-        if (WSAGetLastError() != WSAEWOULDBLOCK)
-        {
-            if (result == SOCKET_ERROR)
-            {
-                cout << "DEBUG: Error receiving: " << WSAGetLastError() << ", shutting down connection." << endl;
-                return false;
-            }
-            else
-            {
-                total += result;
-            }
-        }
-    }
 
-    return true;
+	if (inBytes > 0)
+	{
+		messageLength = ntohs(messageLength);
+		int total = 0;
+		while (total < messageLength)
+		{
+			int size = min((int)(messageLength - total), MAX_BUFSIZE);
+			int result = recv(sock, (char*)(outStr + total), size, 0);
+			total += result;
+		}
+
+		return true;
+	}	
+
+    return false;
 }
 
 //
@@ -206,43 +203,4 @@ SOCKET connectTo(char * host, u_short port, int timeoutSec)
     else {
         return INVALID_SOCKET;
     }
-
-    /*
-    SOCKET sock;
-    int result;
-
-    cout << "SOCKET: creating socket..." << endl;
-
-    // Create a SOCKET for connecting to server
-    sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (sock == INVALID_SOCKET) {
-    cout << "ERROR creating socket: " << WSAGetLastError() << endl;
-    WSACleanup();
-    return INVALID_SOCKET;
-    }
-
-    // Set socket to non-blocking
-    setNonBlocking(sock);
-
-    cout << "SOCKET: connecting to server..." << endl;
-
-    // The sockaddr_in structure specifies the address family, IP address, and port of the server to be connected to.
-    clientService.sin_family = AF_INET;
-    clientService.sin_addr.s_addr = inet_addr(addr);
-    clientService.sin_port = htons(port);
-
-    // Attempt to connect to server, with timeout after 3 seconds
-    long sysTime = GetTickCount();
-    do {
-    int result = connect(sock, (SOCKADDR*)&clientService, sizeof(clientService));
-    if (result == SOCKET_ERROR) {
-    cout << "ERROR connecting to server: " << WSAGetLastError() << endl;
-    closesocket(sock);
-    WSACleanup();
-    return INVALID_SOCKET;
-    }
-    } while ();
-
-    return sock;
-    */
 }

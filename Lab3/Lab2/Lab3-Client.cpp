@@ -36,33 +36,34 @@ int main(int argc, char* argv[])
 {
     bool validArgs = true;
 
-    if (argc > 1 && (argc - 1) % 2 == 0)
+    if (argc > 2)
     {
-        for (int arg = 1; arg <= argc && validArgs; ++arg)
+        for (int arg = 1; arg < argc && validArgs; ++arg)
         {
             if (strcmp(argv[arg], "-ip") == 0)
             {
                 struct sockaddr_in sock_addr;
                 if (inet_pton(AF_INET, argv[++arg], &sock_addr) > 0)
                 {
-                    cout << "IP address: " << argv[arg] << endl;
-                    strcpy_s(server_IP, argv[arg]);
+					//cout << "IP address: " << argv[arg] << endl;
+					strcpy_s(server_IP, argv[arg]);
                 }
                 else
                 {
-                    cout << "IP address does not match IPv4 format." << endl;
+                    //cout << "IP address does not match IPv4 format." << endl;
                     validArgs = false;
                 }
             }
-            else if (strcmp(argv[arg], "-tx") == 0)
+			else if (strcmp(argv[arg], "-tx") == 0)
             {
-                numTx = atoi(argv[++arg]);
-                cout << "Number transactions: " << numTx << endl;
+				numTx = atoi(argv[++arg]);
+                //cout << "Number transactions: " << numTx << endl;
             }
-            else if (strcmp(argv[arg], "-msDelay") == 0)
+			else if (strcmp(argv[arg], "-msDelay") == 0)
             {
-                msDelay = atoi(argv[++arg]);
-                cout << "Request Delay: " << msDelay << endl;
+				msDelay = atoi(argv[++arg]);
+                //cout << "Request Delay: " << msDelay << endl;
+				break;
             }
             else
             {
@@ -117,11 +118,12 @@ int genRequestID()
 //
 void xmtThread(SOCKET sock)
 {
-    for (int idx = 0; idx < numTx; ++idx)
-    {
-        char * msg = const_cast<char*>(getMessage(sock).c_str());
-        reqMsgs.push_back(msg);
-        putReq(sock, msg);
+	for (int idx = 0; idx < numTx; ++idx)
+	{
+		char * msg = new char[MAX_BUFSIZE];
+		strcpy(msg, const_cast<char*>(getMessage(sock).c_str()));
+		reqMsgs.push_back(msg);
+		putReq(sock, msg);
         Sleep(msDelay);
     }
 }
@@ -131,29 +133,32 @@ void xmtThread(SOCKET sock)
 //
 void rcvThread(SOCKET sock)
 {
-    setBlocking(sock, true);
-
     int count = 0;
     while (count < numTx) {
-        char temp[MAX_BUFSIZE] = "";
-        getRsp(sock, temp);
-        if (strlen(temp) > 0)
+        char * rsp = new char[MAX_BUFSIZE];
+		ZeroMemory(rsp, MAX_BUFSIZE);
+		if (getRsp(sock, rsp))
         {
+			char * temp = new char[strlen(rsp)];
+			strcpy(temp, rsp);
+
             char * pch;
-            pch = strtok(temp, "|");
+			pch = strtok(temp, "|");
             pch = strtok(NULL, "|");
             pch = strtok(NULL, "|");
-            int requestId = atoi(pch);
+            int requestId = stoi(pch);
 
             // Process transaction according to request ID and output to log
             cout << reqMsgs.at(requestId) << endl;
-            cout << temp << endl;
+			cout << rsp << endl;
+
+			// Free memory
+			delete[] rsp;
+			delete[] reqMsgs.at(requestId);
 
             ++count;
         }
     }
-
-    setBlocking(sock, false);
 }
 
 string getMessage(SOCKET sock)
