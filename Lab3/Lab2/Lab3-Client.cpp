@@ -36,30 +36,33 @@ int main(int argc, char* argv[])
 {
     bool validArgs = true;
 
-    if (argc > 1 && (argc + 1) % 2 == 0)
+    if (argc > 1 && (argc - 1) % 2 == 0)
     {
-        for (int arg = 0; arg < argc && validArgs; ++arg)
+        for (int arg = 1; arg <= argc && validArgs; ++arg)
         {
-            if (argv[arg] == "-ip")
+            if (strcmp(argv[arg], "-ip") == 0)
             {
-                // Check for valid IPv4 address
                 struct sockaddr_in sock_addr;
-                if (inet_pton(AF_INET, argv[arg++], &sock_addr) > 0)
+                if (inet_pton(AF_INET, argv[++arg], &sock_addr) > 0)
                 {
+                    cout << "IP address: " << argv[arg] << endl;
                     strcpy_s(server_IP, argv[arg]);
                 }
                 else
                 {
+                    cout << "IP address does not match IPv4 format." << endl;
                     validArgs = false;
                 }
             }
-            else if (argv[arg] == "-tx")
+            else if (strcmp(argv[arg], "-tx") == 0)
             {
-                numTx = atoi(argv[arg++]);
+                numTx = atoi(argv[++arg]);
+                cout << "Number transactions: " << numTx << endl;
             }
-            else if (argv[arg] == "-msDelay")
+            else if (strcmp(argv[arg], "-msDelay") == 0)
             {
-                msDelay = atoi(argv[arg++]);
+                msDelay = atoi(argv[++arg]);
+                cout << "Request Delay: " << msDelay << endl;
             }
             else
             {
@@ -353,7 +356,7 @@ string getMessage(SOCKET sock)
     Include 3 for last portion.
     */
 
-    msg.append("3");
+    msg.append("2");
     msg.append("|"); // End of message
 
     /*

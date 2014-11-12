@@ -11,24 +11,24 @@ using namespace std;
 WSADATA wsaData;
 struct sockaddr_in clientService;
 
-void putReq(SOCKET sock, char * inStr)
+bool putReq(SOCKET sock, char * inStr)
 {
-    xmt(sock, inStr);
+    return xmt(sock, inStr);
 }
 
-void getReq(SOCKET sock, char * outStr)
+bool getReq(SOCKET sock, char * outStr)
 {
-    rcv(sock, outStr);
+    return rcv(sock, outStr);
 }
 
-void putRsp(SOCKET sock, char * inStr)
+bool putRsp(SOCKET sock, char * inStr)
 {
-    xmt(sock, inStr);
+    return xmt(sock, inStr);
 }
 
-void getRsp(SOCKET sock, char * outStr)
+bool getRsp(SOCKET sock, char * outStr)
 {
-    rcv(sock, outStr);
+    return rcv(sock, outStr);
 }
 
 //
@@ -106,7 +106,7 @@ bool xmt(SOCKET sock, CHAR * inStr)
 //
 // Receive transaction data and return string.
 //
-void rcv(SOCKET sock, char * outStr)
+bool rcv(SOCKET sock, char * outStr)
 {
     u_short messageLength;
     int inBytes = recv(sock, (char*)&messageLength, sizeof(messageLength), 0);
@@ -120,7 +120,7 @@ void rcv(SOCKET sock, char * outStr)
             if (result == SOCKET_ERROR)
             {
                 cout << "DEBUG: Error receiving: " << WSAGetLastError() << ", shutting down connection." << endl;
-                return;
+                return false;
             }
             else
             {
@@ -128,6 +128,8 @@ void rcv(SOCKET sock, char * outStr)
             }
         }
     }
+
+    return true;
 }
 
 //
