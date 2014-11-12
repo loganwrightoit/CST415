@@ -18,6 +18,7 @@ int portNum = 0;
 int numTx = 0;
 int msDelay = 0;
 int reqID = 0;
+LARGE_INTEGER frequency;
 
 // Stores request messages
 vector<char*> reqMsgs;
@@ -100,14 +101,26 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+	// Populate frequency information
+	QueryPerformanceFrequency(&frequency);
+
+	/* PERFORMANCE DEBUG
+	LARGE_INTEGER t1, t2;
+	double elapsedTime;
+	QueryPerformanceCounter(&t1);
+	*/
+
 	thread xmtThread(xmtThread, sock);
 	thread rcvThread(rcvThread, sock);
 
 	xmtThread.join();
 	rcvThread.join();
 
-    shutdown(sock, SD_BOTH);
-    closesocket(sock);
+	/* PERFORMANCE DEBUG
+	QueryPerformanceCounter(&t2);
+	elapsedTime = (t2.QuadPart - t1.QuadPart) * 1000.0 / frequency.QuadPart;
+	cout << "Time taken: " << elapsedTime << "ms" << endl;
+	*/
 
     int* shutdownStatus = shutdownSocket(sock);
     addTrailRecord(shutdownStatus[0], shutdownStatus[1], shutdownStatus[2]);
@@ -125,16 +138,29 @@ int genRequestID()
 // Transmits requests.
 //
 void xmtThread(SOCKET sock)
-{
+{	
 	int count = 0;
 	while (count < numTx)
 	{
+		// Delay between responses
+		if (count != 0)
+		{
+			LARGE_INTEGER t1;
+			QueryPerformanceCounter(&t1);
+			while (1)
+			{
+				LARGE_INTEGER t2;
+				QueryPerformanceCounter(&t2);
+				double elapsedTime = (t2.QuadPart - t1.QuadPart) * 1000.0 / frequency.QuadPart;
+				if (elapsedTime >= msDelay) break;
+			}
+		}
+
 		char * msg = new char[MAX_BUFSIZE];
 		strcpy(msg, const_cast<char*>(getMessage(sock).c_str()));
 		reqMsgs.push_back(msg);
 		putReq(sock, msg);
 		++count;
-		//Sleep(msDelay);
 	}
 }
 
