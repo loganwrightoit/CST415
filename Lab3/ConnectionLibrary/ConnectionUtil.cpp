@@ -95,9 +95,11 @@ bool xmt(SOCKET sock, CHAR * inStr)
             delete[] toSend;
             return false;
         }
-
-        total += result;
-        remaining -= result;
+		else if (result > 0)
+		{
+			total += result;
+			remaining -= result;
+		}
     }
 
 	delete[] toSend;
@@ -120,7 +122,10 @@ bool rcv(SOCKET sock, char * outStr)
 		{
 			int size = min((int)(messageLength - total), MAX_BUFSIZE);
 			int result = recv(sock, (char*)(outStr + total), size, 0);
-			total += result;
+			if (result > 0)
+			{
+				total += result;
+			}			
 		}
 
 		return true;

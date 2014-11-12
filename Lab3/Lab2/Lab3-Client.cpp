@@ -92,7 +92,7 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    //freopen("out.txt", "w", stdout); // Output to file
+    freopen("LabX.ScenarioX.WrightL.txt", "w", stdout); // Output to file
 
     SOCKET sock = connectTo(server_IP, portNum, 3);
     if (sock == INVALID_SOCKET) {
@@ -123,14 +123,16 @@ int genRequestID()
 //
 void xmtThread(SOCKET sock)
 {
-	for (int idx = 0; idx < numTx; ++idx)
+	int count = 0;
+	while (count < numTx)
 	{
 		char * msg = new char[MAX_BUFSIZE];
 		strcpy(msg, const_cast<char*>(getMessage(sock).c_str()));
 		reqMsgs.push_back(msg);
 		putReq(sock, msg);
-        Sleep(msDelay);
-    }
+		++count;
+		//Sleep(msDelay);
+	}
 }
 
 //
@@ -139,13 +141,13 @@ void xmtThread(SOCKET sock)
 void rcvThread(SOCKET sock)
 {
     int count = 0;
-    while (count < numTx) {
-        char * rsp = new char[MAX_BUFSIZE];
-		ZeroMemory(rsp, MAX_BUFSIZE);
+    while (count < numTx)
+	{
+        char rsp[MAX_BUFSIZE] = "";
 		if (getRsp(sock, rsp))
         {
-			char * temp = new char[strlen(rsp)];
-			strcpy(temp, rsp);
+			char temp[MAX_BUFSIZE + 1];
+			strcpy_s(temp, rsp);
 
             char * pch;
 			pch = strtok(temp, "|");
@@ -158,7 +160,6 @@ void rcvThread(SOCKET sock)
 			cout << rsp << endl;
 
 			// Free memory
-			delete[] rsp;
 			delete[] reqMsgs.at(requestId);
 
             ++count;
