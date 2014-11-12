@@ -105,11 +105,12 @@ int main(int argc, char* argv[])
 	// Populate frequency information
 	QueryPerformanceFrequency(&frequency);
 
-	// PERFORMANCE DEBUG
+	// DEBUG TOTAL TRANSACTION TIME
+    /*
 	LARGE_INTEGER t1, t2;
 	double elapsedTime;
 	QueryPerformanceCounter(&t1);
-	//
+	*/
 
 	thread xmtThread(xmtThread, sock);
 	thread rcvThread(rcvThread, sock);
@@ -117,11 +118,12 @@ int main(int argc, char* argv[])
 	xmtThread.join();
 	rcvThread.join();
 
-	// PERFORMANCE DEBUG
+    // DEBUG TOTAL TRANSACTION TIME
+    /*
 	QueryPerformanceCounter(&t2);
 	elapsedTime = (t2.QuadPart - t1.QuadPart) * 1000.0 / frequency.QuadPart;
 	cout << "Time taken: " << elapsedTime << "ms" << endl;
-	//
+	*/
 
     int* shutdownStatus = shutdownSocket(sock);
     addTrailRecord(shutdownStatus[0], shutdownStatus[1], shutdownStatus[2]);
