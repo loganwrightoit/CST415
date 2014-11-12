@@ -55,15 +55,29 @@ int main(int argc, char* argv[])
     }
     */
 
+    if (!initWinsock())
+    {
+        cout << "ERROR: Winsock initialization failed: " << WSAGetLastError() << endl;
+        return 1;
+    }
+
     SOCKET listen_socket = GetListenSock();
-    SOCKET client_socket;
+    if (listen_socket == INVALID_SOCKET)
+    {
+        cout << "ERROR: GetListenSock() failed: " << WSAGetLastError() << endl;
+        return 1;
+    }
 
     cout << "Listening for connections..." << endl;
-
-    while ((client_socket = accept(listen_socket, NULL, NULL)))
+        
+    while (1)
     {
-        unsigned threadID;
-        HANDLE hThread = (HANDLE)_beginthreadex(NULL, 0, &ClientSession, (void*)client_socket, 0, &threadID);
+        SOCKET client_socket = accept(listen_socket, NULL, NULL);
+        if (client_socket != INVALID_SOCKET)
+        {
+            unsigned threadID;
+            HANDLE hThread = (HANDLE)_beginthreadex(NULL, 0, &ClientSession, (void*)client_socket, 0, &threadID);
+        }
     }
 
     return 0;
@@ -74,7 +88,7 @@ int main(int argc, char* argv[])
 //
 SOCKET GetListenSock()
 {
-    SOCKET sock = socket(PF_INET, SOCK_STREAM, 0);
+    SOCKET sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (sock == INVALID_SOCKET)
     {
         cout << "ERROR: socket() failed with error: " << WSAGetLastError() << endl;

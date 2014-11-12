@@ -10,11 +10,11 @@
 
 using namespace std;
 
-#define DEFAULT_PORT 2605
 #define MAX_BUFSIZE 144
 
 // Global variables
 char server_IP[16];
+int portNum = 0;
 int numTx = 0;
 int msDelay = 0;
 int reqID = 0;
@@ -54,6 +54,11 @@ int main(int argc, char* argv[])
                     validArgs = false;
                 }
             }
+            else if (strcmp(argv[arg], "-port") == 0)
+            {
+                portNum = atoi(argv[++arg]);
+                //cout << "Number transactions: " << numTx << endl;
+            }
 			else if (strcmp(argv[arg], "-tx") == 0)
             {
 				numTx = atoi(argv[++arg]);
@@ -78,7 +83,7 @@ int main(int argc, char* argv[])
 
     if (!validArgs)
     {
-        cout << "ERROR: arguments required: -ip <server ip> -tx <num transactions> -msDelay <delay>" << endl;
+        cout << "ERROR: arguments required: -ip <server ip> -port <port number> -tx <num transactions> -msDelay <delay>" << endl;
         return 1;
     }
 
@@ -89,7 +94,7 @@ int main(int argc, char* argv[])
 
     //freopen("out.txt", "w", stdout); // Output to file
 
-    SOCKET sock = connectTo(server_IP, DEFAULT_PORT, 3);
+    SOCKET sock = connectTo(server_IP, portNum, 3);
     if (sock == INVALID_SOCKET) {
         cout << "ERROR: Unable to connect to server, shutting down..." << endl;
         return 1;
@@ -330,7 +335,7 @@ string getMessage(SOCKET sock)
     be 2605).
     */
 
-    msg.append(std::to_string(DEFAULT_PORT));
+    msg.append(std::to_string(portNum));
     msg.append("|");
 
     /*
