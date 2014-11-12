@@ -1,3 +1,4 @@
+#pragma once
 #include "WinSock2.h"
 
 bool xmt(SOCKET sock, char * inStr);
