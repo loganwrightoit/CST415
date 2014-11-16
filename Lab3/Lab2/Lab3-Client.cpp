@@ -18,19 +18,15 @@ char server_IP[16];
 int portNum = 0;
 int numTx = 0;
 int msDelay = 0;
-int reqID = 0;
+u_int reqID = 0;
 LARGE_INTEGER frequency;
 
-u_long numReqSent = 0;
-u_long numRspRcvd = 0;
+char serverName[21] = "";
+
 u_long firstReqTime = 0;
-u_long finalReqTime = 0;
 u_long firstRspTime = 0;
+u_long finalReqTime = 0;
 u_long finalRspTime = 0;
-double reqAvg = 0.0;
-double rspAvg = 0.0;
-double transAvg = 0.0;
-char srvrName[50] = "";
 
 // Stores request messages
 vector<char*> reqMsgs;
@@ -116,25 +112,11 @@ int main(int argc, char* argv[])
 	// Populate frequency information
 	QueryPerformanceFrequency(&frequency);
 
-	// DEBUG TOTAL TRANSACTION TIME
-    /*
-	LARGE_INTEGER t1, t2;
-	double elapsedTime;
-	QueryPerformanceCounter(&t1);
-	*/
-
 	thread xmtThread(xmtThread, sock);
 	thread rcvThread(rcvThread, sock);
 
 	xmtThread.join();
 	rcvThread.join();
-
-    // DEBUG TOTAL TRANSACTION TIME
-    /*
-	QueryPerformanceCounter(&t2);
-	elapsedTime = (t2.QuadPart - t1.QuadPart) * 1000.0 / frequency.QuadPart;
-	cout << "Time taken: " << elapsedTime << "ms" << endl;
-	*/
 
     int* shutdownStatus = shutdownSocket(sock);
     addTrailRecord(shutdownStatus[0], shutdownStatus[1], shutdownStatus[2]);
@@ -143,20 +125,12 @@ int main(int argc, char* argv[])
 	return 0;
 }
 
-int genRequestID()
-{
-    return reqID++;
-}
-
 //
 // Transmits requests.
 //
 void xmtThread(SOCKET sock)
 {	
 	int count = 0;
-
-	u_long currTime = GetTickCount();	
-
 	while (count < numTx)
 	{
 		// Delay between responses
@@ -175,10 +149,17 @@ void xmtThread(SOCKET sock)
 
 		char * msg = new char[MAX_BUFSIZE];
 		strcpy(msg, const_cast<char*>(getMessage(sock).c_str()));
-		++numReqSent;
 		reqMsgs.push_back(msg);
-		putReq(sock, msg);
-		++count;
+		
+        while (1)
+        {
+            if (putReq(sock, msg)) break;
+        }
+
+        if (count == 0) firstReqTime = GetTickCount();
+        else if (count == (numTx - 1)) finalReqTime = GetTickCount();
+
+        ++count;
 	}
 }
 
@@ -188,12 +169,15 @@ void xmtThread(SOCKET sock)
 void rcvThread(SOCKET sock)
 {
     int count = 0;
+
     while (count < numTx)
 	{
         char rsp[MAX_BUFSIZE] = "";
 		if (getRsp(sock, rsp))
         {
-			++numRspRcvd;
+            if (count == 0) firstRspTime = GetTickCount();
+            else if (count == (numTx - 1)) finalRspTime = GetTickCount();
+
 			char temp[MAX_BUFSIZE + 1];
 			strcpy_s(temp, rsp);
 
@@ -203,21 +187,18 @@ void rcvThread(SOCKET sock)
             pch = strtok(NULL, "|");
             int requestId = stoi(pch);
 
-			if (strcmp(srvrName, "") == 0)
-			{
-				pch = strtok(NULL, "|");
-				strcpy(srvrName, pch);
-			}
+            if (count == 0)
+            {
+                pch = strtok(NULL, "|");
+                strcpy(serverName, pch);
+            }
 
             // Process transaction according to request ID and output to log
             cout << reqMsgs.at(requestId) << endl;
 			cout << rsp << endl;
 
-			// Free memory
-
-
-
-			//delete[] reqMsgs.at(requestId);
+            // Clear memory
+            delete[] reqMsgs.at(requestId);
 
             ++count;
         }
@@ -227,7 +208,6 @@ void rcvThread(SOCKET sock)
 string getMessage(SOCKET sock)
 {
     string msg = "";
-    int reqId = genRequestID();
 
     /*
     Field Name: MessageType
@@ -272,7 +252,7 @@ string getMessage(SOCKET sock)
     message and in the same positions.
     */
 
-    msg.append(std::to_string(reqId));
+    msg.append(std::to_string(reqID++));
     msg.append("|");
 
     /*
@@ -515,26 +495,30 @@ void addTrailRecord(int shutTransmit, int shutReceive, int shutSocket)
 
     cout << msg << endl;
 
-	//Requests transmitted = [xxxxx]
-	cout << "Requests Transmitted = [" << numReqSent << "]" << endl;
-	//Responses received = [xxxxx]
-	cout << "Responses Received = [" << numRspRcvd << "]" << endl;
-	//Req.run duration(ms) = [xxxxxxxxx]
-	cout << "Req. run duration (ms) = [" << ? << "]" << endl;
-	//Rsp.Run duration(ms) = [xxxxxxxxx]
-	cout << "Rsp. run duration (ms) = [" << ? << "]" << endl;
-	//Trans.Duration(ms) = [xxxxxxxxx]
-	cout << "Trans. duration (ms) = [" << ? << "]" << endl;
+    double reqRunDuration = (finalReqTime - firstReqTime);
+    double rspRunDuration = (finalRspTime - firstRspTime);
+    double txRunDuration = (finalRspTime - firstReqTime);
+
+    //Requests transmitted = [xxxxx]
+    cout << "Requests Transmitted   = [" << numTx << "]" << endl;
+    //Responses received = [xxxxx]
+    cout << "Responses Received     = [" << numTx << "]" << endl;
+    //Req.run duration(ms) = [xxxxxxxxx]
+    cout << "Req. run duration (ms) = [" << setprecision(2) << fixed << reqRunDuration << "]" << endl;
+    //Rsp.Run duration(ms) = [xxxxxxxxx]
+    cout << "Rsp. run duration (ms) = [" << setprecision(2) << fixed << rspRunDuration << "]" << endl;
+    //Trans.Duration(ms) = [xxxxxxxxx]
+    cout << "Trans. duration   (ms) = [" << setprecision(2) << fixed << txRunDuration << "]" << endl;
 	//Actual req.pace(ms) = [xxxx]
-	cout << "Actual req. pace (ms) = [" << msDelay << "]" << endl;
+    cout << "Actual req. pace  (ms) = [" << setprecision(2) << fixed << (reqRunDuration / numTx) << "]" << endl;
 	//Actual rsp.Pace(ms) = [xxxx]
-	cout << "Actual rsp. pace (ms) = [" << ? << "]" << endl;
+    cout << "Actual rsp. pace  (ms) = [" << setprecision(2) << fixed << (rspRunDuration / numTx) << "]" << endl;
 	//Configured pace(ms) = [xxxx]
-	cout << "Configured pace(ms) = [" << msDelay << "]" << endl;
+	cout << "Configured pace   (ms) = [" << msDelay << "]" << endl;
 	//Transaction avg. (ms) = [xxxx]
-	cout << "Transaction avg. (ms) = [" << ? << "]" << endl;
-	//Your name :
-	cout << "Client Student: WrightL" << endl;
-	//Name of student whose client was used :
-	cout << "Client Student: " << srvrName << endl;
+    cout << "Transaction avg.  (ms) = [" << setprecision(2) << fixed << (txRunDuration / numTx) << "]" << endl;
+	//Client Name:
+	cout << "Client student: WrightL" << endl;
+	//Server Name:
+    cout << "Server student: " << serverName << endl;
 }
