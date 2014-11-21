@@ -1,20 +1,15 @@
+#pragma comment (lib, "Ws2_32.lib")
+
 #include <iostream>
 #include <ws2tcpip.h>
-#include <windows.h>
 #include <string>
-#include <sstream>
-#include <iomanip>
-#include <stdint.h>
 #include <atlstr.h>
-#include <thread>
 #include "ConnectionUtil.h"
 
 using namespace std;
 
-#pragma comment (lib, "Ws2_32.lib")
-#pragma comment(lib, "IPHLPAPI.lib")
-
 #define MAX_MSG_SIZE 144
+const std::string delimiter("|");
 
 char ipAddr[16] = "";
 int portNum = 0;
@@ -23,7 +18,7 @@ int rspId = 0;
 // Forward declarations
 SOCKET GetListenSock();
 unsigned __stdcall ClientSession(void *data);
-string getRspMessage(SOCKET sock, char * req);
+string getRspFromReq(SOCKET sock, char * inStr);
 
 //
 // Main program thread.
@@ -39,7 +34,6 @@ int main(int argc, char* argv[])
             if (strcmp(argv[arg], "-port") == 0)
             {
                 portNum = atoi(argv[++arg]);
-                //cout << "Port number: " << portNum << endl;
             }
             else
             {
@@ -138,24 +132,23 @@ unsigned __stdcall ClientSession(void *data)
     while (1)
     {
         if (sock == INVALID_SOCKET)
-        {
-            cout << "Client disconnected on socket " << sockNum << endl;
-            return 0;
-        }
+            break;
 
         // Get request message
         char req[MAX_MSG_SIZE] = "";
 
-        if (!getRsp(sock, req))
+        if (!getReq(sock, req))
             break;
 
-        // Generate response message
-        string rsp = getRspMessage(sock, req);
+        // Generate response message      
+        string rsp = getRspFromReq(sock, req);
 
         // Send response
         if (!putRsp(sock, const_cast<char*>(rsp.c_str())))
             break;
     }
+
+    cout << "Client disconnected on socket " << sockNum << endl;
 
     return 1;
 }
@@ -163,41 +156,79 @@ unsigned __stdcall ClientSession(void *data)
 //
 // Returns response string to request.
 //
-string getRspMessage(SOCKET sock, char * req)
+string getRspFromReq(SOCKET sock, char * inStr)
 {
-    // Decode request fields
-    char * pch;
-    pch = strtok(req, "|");
-    pch = strtok(NULL, "|");
-    long msTimeStamp = atol(pch);           // msTimeStamp
-    pch = strtok(NULL, "|");
-    int requestId = atoi(pch);              // RequestID
-    pch = strtok(NULL, "|");
-    char studentName[21] = "";              // StudentName
-    strcpy(studentName, pch);
-    pch = strtok(NULL, "|");
-    char studentId[8] = "";                 // StudentID
-    strcpy(studentId, pch);
-    pch = strtok(NULL, "|");
-    int responseDelay = atoi(pch);          // ResponseDelay
-    pch = strtok(NULL, "|");
-    char foreignHostIpAddress[16] = "";     // ClientIPAddress
-    strcpy(foreignHostIpAddress, pch);
-    pch = strtok(NULL, "|");
-    int foreignHostServicePort = atoi(pch); // ClientServicePort
-    pch = strtok(NULL, "|");
-    int serverSocketNumber = atoi(pch);     // ClientSocketNumber
-    pch = strtok(NULL, "|");
-    int serverIpAddress = atoi(pch);        // ServerIPAddress
-    pch = strtok(NULL, "|");
-    int serverServicePort = atoi(pch);      // ServerServicePort
-    pch = strtok(NULL, "|");
-    char responseId[21] = "";               // ResponseID (data)
-    strcpy(responseId, pch);
-    pch = strtok(NULL, "|");
-    int responseType = atoi(pch);           // ResponseType
+    string req(inStr);
+    size_t pos = req.find(delimiter);
+    req.erase(0, pos + delimiter.length());
+    
+    //REQ|14178203|0|WrightL|19-4928|0|10.1.20.7|51180|2|192.168.101.210|2605|This is my message!|1|
 
-    string msg = "";
+    // Fields
+    long msTimestamp = 0;
+    int requestId = 0;
+    string studentName;
+    string studentId;
+    int responseDelay = 0;
+    string foreignHostIpAddress;
+    int foreignHostServicePort = 0;
+    int serverSocketNumber = 0;
+    string serverIpAddress;
+    int serverServicePort = 0;
+    string responseId;
+    int responseType = 0;
+
+    // Tokenizer
+    for (int numToken = 0; numToken < 13; ++numToken)
+    {
+        size_t pos = req.find(delimiter);
+        string token = req.substr(0, pos);
+
+        switch (numToken)
+        {
+            case 0:
+                msTimestamp = atol(token.c_str());
+                break;
+            case 1:
+                requestId = atoi(token.c_str());
+                break;
+            case 2:
+                studentName = token;
+                break;
+            case 3:
+                studentId = token;
+                break;
+            case 4:
+                responseDelay = atoi(token.c_str());
+                break;
+            case 5:
+                foreignHostIpAddress = token;
+                break;
+            case 6:
+                foreignHostServicePort = atoi(token.c_str());
+                break;
+            case 7:
+                serverSocketNumber = atoi(token.c_str());
+                break;
+            case 8:
+                serverIpAddress = token;
+                break;
+            case 9:
+                serverServicePort = atoi(token.c_str());
+                break;
+            case 10:
+                responseId = token;
+                break;
+            case 11:
+                // Response Type (only for lab 2 clients)
+                responseType = atoi(token.c_str());
+                break;
+        }
+
+        req.erase(0, pos + delimiter.length());
+    }
+
+    string result;
 
     /*
     Field Name: MessageType
@@ -210,8 +241,8 @@ string getRspMessage(SOCKET sock, char * req)
     upper case.
     */
 
-    msg.append("RSP");
-    msg.append("|");
+    result.append("RSP");
+    result.append(delimiter);
 
     /*
     Field Name: msTimeStamp
@@ -225,8 +256,8 @@ string getRspMessage(SOCKET sock, char * req)
     */
 
     DWORD timestamp = GetTickCount();
-    msg.append(std::to_string(timestamp));
-    msg.append("|");
+    result.append(std::to_string(timestamp));
+    result.append(delimiter);
 
     /*
     Field Name: RequestID
@@ -238,8 +269,8 @@ string getRspMessage(SOCKET sock, char * req)
     Description: Data from the RequestID field of the client’s request message
     */
 
-    msg.append(std::to_string(requestId));
-    msg.append("|");
+    result.append(std::to_string(requestId));
+    result.append(delimiter);
 
     /*
     Field Name: StudentName
@@ -251,8 +282,8 @@ string getRspMessage(SOCKET sock, char * req)
     Description: Data from the StudentName field of the client’s request message
     */
 
-    msg.append(studentName);
-    msg.append("|");
+    result.append(studentName);
+    result.append(delimiter);
 
     /*
     Field Name: Student ID
@@ -264,8 +295,8 @@ string getRspMessage(SOCKET sock, char * req)
     Description: Data from the StudentID field of the client’s request message
     */
 
-    msg.append(studentId);
-    msg.append("|");
+    result.append(studentId);
+    result.append(delimiter);
 
     /*
     Field Name: ResponseDelay
@@ -278,8 +309,8 @@ string getRspMessage(SOCKET sock, char * req)
     message
     */
 
-    msg.append(std::to_string(responseDelay));
-    msg.append("|");
+    result.append(std::to_string(responseDelay));
+    result.append(delimiter);
 
     /*
     Field Name: ForeignHostIPAddress
@@ -292,8 +323,8 @@ string getRspMessage(SOCKET sock, char * req)
     notation
     */
 
-    msg.append(foreignHostIpAddress);
-    msg.append("|");
+    result.append(foreignHostIpAddress);
+    result.append(delimiter);
 
     /*
     Field Name: ForeignHostServicePort
@@ -306,8 +337,8 @@ string getRspMessage(SOCKET sock, char * req)
     2605.
     */
 
-    msg.append(std::to_string(foreignHostServicePort));
-    msg.append("|");
+    result.append(std::to_string(foreignHostServicePort));
+    result.append(delimiter);
 
     /*
     Field Name: ServerSocketNumber
@@ -319,8 +350,8 @@ string getRspMessage(SOCKET sock, char * req)
     Description: The server’s TCP socket number.
     */
 
-    msg.append(std::to_string(sock));
-    msg.append("|");
+    result.append(std::to_string(sock));
+    result.append(delimiter);
 
     /*
     Field Name: ServerIPAddress
@@ -339,8 +370,8 @@ string getRspMessage(SOCKET sock, char * req)
     int local_port = ntohs(sin.sin_port);
 
     inet_ntop(AF_INET, &sin.sin_addr, addr, sizeof(addr));
-    msg.append(addr);
-    msg.append("|");
+    result.append(addr);
+    result.append(delimiter);
 
     /*
     Field Name: ServerServicePort
@@ -352,8 +383,8 @@ string getRspMessage(SOCKET sock, char * req)
     Description: The server’s service port number, should be 2605.
     */
 
-    msg.append(std::to_string(local_port));
-    msg.append("|");
+    result.append(std::to_string(local_port));
+    result.append(delimiter);
 
     /*
     Field Name: ResponseID
@@ -371,9 +402,9 @@ string getRspMessage(SOCKET sock, char * req)
         rspId = 0;
     }
 
-    msg.append("RSP_ID_");
-    msg.append(std::to_string(rspId));
-    msg.append("|");
+    result.append("RSP_ID_");
+    result.append(std::to_string(rspId));
+    result.append(delimiter);
 
     /*
     Field Name: ResponseType
@@ -390,13 +421,16 @@ string getRspMessage(SOCKET sock, char * req)
     4. Spurious or unsolicited response received from server
     */
 
-    msg.append("1");
-    msg.append("|");
+    result.append("1");
+    result.append(delimiter);
 
     /*
     Maximum response length = 14610
     Maximum binary value in TCP header field = 14410, or HEX 0090
     */
 
-    return msg;
+    cout << "DEBUG: " << inStr << endl;
+    cout << "DEBUG: " << result << endl;
+
+    return result;
 }
