@@ -161,8 +161,6 @@ string getRspFromReq(SOCKET sock, char * inStr)
     string req(inStr);
     size_t pos = req.find(delimiter);
     req.erase(0, pos + delimiter.length());
-    
-    //REQ|14178203|0|WrightL|19-4928|0|10.1.20.7|51180|2|192.168.101.210|2605|This is my message!|1|
 
     // Fields
     long msTimestamp = 0;
@@ -179,7 +177,7 @@ string getRspFromReq(SOCKET sock, char * inStr)
     int responseType = 0;
 
     // Tokenizer
-    for (int numToken = 0; numToken < 13; ++numToken)
+    for (int numToken = 0; numToken < 12; ++numToken)
     {
         size_t pos = req.find(delimiter);
         string token = req.substr(0, pos);
@@ -428,9 +426,6 @@ string getRspFromReq(SOCKET sock, char * inStr)
     Maximum response length = 14610
     Maximum binary value in TCP header field = 14410, or HEX 0090
     */
-
-    cout << "DEBUG: " << inStr << endl;
-    cout << "DEBUG: " << result << endl;
 
     return result;
 }
