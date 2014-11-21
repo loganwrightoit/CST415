@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <atlstr.h>
 #include <thread>
+#include <vector>
 #include "ConnectionUtil.h"
 
 using namespace std;
@@ -15,10 +16,29 @@ using namespace std;
 #pragma comment(lib, "IPHLPAPI.lib")
 
 #define MAX_MSG_SIZE 144
+const std::string delimiter("|");
 
 char serverIp[16] = "";
 int serverPort = 0;
 int hostPort = 0;
+bool hasClient = false;
+bool endProgram = false;
+
+// Fields for transaction stats
+int numTx = 0;
+int msDelay = 0;
+char serverName[21] = "";
+int expectedTx = 0;
+LARGE_INTEGER frequency;
+u_long firstReqTime = 0;
+u_long firstRspTime = 0;
+u_long finalReqTime = 0;
+u_long finalRspTime = 0;
+
+thread serverThread;
+
+// Stores request messages for middleware client log output
+vector<char*> reqMsgs;
 
 // Forward declarations
 SOCKET GetListenSock();
@@ -26,7 +46,8 @@ SOCKET server_socket = INVALID_SOCKET;
 SOCKET client_socket = INVALID_SOCKET;
 unsigned __stdcall ClientSession(void *data);
 unsigned __stdcall ServerSession(void *data);
-void ServerRspToClientRsp(char * rsp);
+void doRspToClientRsp(char * inStr);
+void addTrailRecord(int shutTransmit, int shutReceive, int shutSocket);
 
 //
 // Main program thread.
@@ -117,19 +138,29 @@ int main(int argc, char* argv[])
     // Run until closed
     while (1)
     {
-        if (server_socket == INVALID_SOCKET)
+        if (endProgram)
+        {
             break;
+        }
+
+        if (server_socket == INVALID_SOCKET)
+            return 0;
 
         if (client_socket == INVALID_SOCKET)
         {
             client_socket = accept(listen_socket, NULL, NULL);
             if (client_socket != INVALID_SOCKET)
             {
+                hasClient = true;
                 unsigned threadID;
-                HANDLE hThread = (HANDLE)_beginthreadex(NULL, 0, &ClientSession, (void*)client_socket, 0, &threadID);
+                HANDLE hThread = (HANDLE)_beginthreadex(NULL, 0, &ClientSession, 0, 0, &threadID);
             }
         }
     }
+
+    int* shutdownStatus = shutdownSocket(server_socket);
+    addTrailRecord(shutdownStatus[0], shutdownStatus[1], shutdownStatus[2]);
+    delete[] shutdownStatus;
 
     return 0;
 }
@@ -168,29 +199,40 @@ SOCKET GetListenSock()
 
 unsigned __stdcall ClientSession(void *data)
 {
-    SOCKET sock = (SOCKET)data;
-    int sockNum = sock;
+    cout << "Client connected on socket " << client_socket << ", beginning log output." << endl;
 
-    cout << "Client connected on socket " << sock << endl;
+    freopen("LabX.ScenarioX.WrightL.txt", "w", stdout); // Output to file
 
     while (1)
     {
-        if (sock == INVALID_SOCKET)
+        if (client_socket == INVALID_SOCKET)
             break;
 
         // Get request message
         char req[MAX_MSG_SIZE] = "";
 
         // Blocking recv
-        if (!getReq(sock, req))
+        if (!getReq(client_socket, req))
             break;
+
+        // Stats
+        if (firstReqTime == 0) firstReqTime = GetTickCount();
+        finalReqTime = GetTickCount();
+
+        // Save message for output later
+        char * msg = new char[MAX_MSG_SIZE];
+        strcpy(msg, req);
+        reqMsgs.push_back(msg);
 
         // Forward request to server (watch for bottleneck in thread)
         if (!putReq(server_socket, req))
             break;
     }
+
+    // Track final request timestamp
+    finalReqTime = GetTickCount();
     
-    cout << "Client disconnected on socket " << sockNum << endl;
+    endProgram = true;
 
     return 1;
 }
@@ -200,12 +242,20 @@ unsigned __stdcall ServerSession(void *data)
     int sockNum = server_socket;
     cout << "Server connected on socket " << sockNum << endl;
     cout << "Waiting for client connection..." << endl;
-
+    
+    // Spin until client connects
     while (1)
     {
-        if (server_socket == INVALID_SOCKET)
-            break;
+        if (hasClient) break;
+        Sleep(0);
+    }
 
+    // Populate frequency information for collecting transaction stats
+    QueryPerformanceFrequency(&frequency);
+
+    // Receive until client closes connection or error occurs
+    while (1)
+    {
         // Get response message
         char rsp[MAX_MSG_SIZE] = "";
 
@@ -213,70 +263,123 @@ unsigned __stdcall ServerSession(void *data)
         if (!getRsp(server_socket, rsp))
             break;
 
-        // Change host info to match server
-        ServerRspToClientRsp(rsp);
+        // Stats
+        if (firstRspTime == 0) firstRspTime = GetTickCount();
+        finalRspTime = GetTickCount();
 
-        // Send response back to client
+        // Log and transform response
+        doRspToClientRsp(rsp);
+
+        // Send transformed response back to client
         if (!putRsp(client_socket, rsp))
             break;
     }
-
-    cout << "Server disconnected on socket " << sockNum << endl;
 
     return 1;
 }
 
 //
-// Transforms response message by replacing host info with server info.
+// Matches request and response and sends to output.
+// Secondly, transforms response message by replacing host info with server info.
 //
-void ServerRspToClientRsp(char * rsp)
+void doRspToClientRsp(char * inStr)
 {
-    // Decode message fields
-    char * pch;
-    pch = strtok(rsp, "|");
-    pch = strtok(NULL, "|");
-    long msTimeStamp = atol(pch);           // msTimeStamp
-    pch = strtok(NULL, "|");
-    int requestId = atoi(pch);              // RequestID
-    pch = strtok(NULL, "|");
-    char studentName[21] = "";              // StudentName
-    strcpy(studentName, pch);
-    pch = strtok(NULL, "|");
-    char studentId[8] = "";                 // StudentID
-    strcpy(studentId, pch);
-    pch = strtok(NULL, "|");
-    int responseDelay = atoi(pch);          // ResponseDelay
-    pch = strtok(NULL, "|");
-    char foreignHostIpAddress[16] = "";     // ClientIPAddress
-    strcpy(foreignHostIpAddress, pch);
-    pch = strtok(NULL, "|");
-    int foreignHostServicePort = atoi(pch); // ClientServicePort
-    pch = strtok(NULL, "|");
-    int serverSocketNumber = atoi(pch);     // ClientSocketNumber
-    pch = strtok(NULL, "|");
-    char serverIpAddress[22] = "";          // ServerIPAddress
-    strcpy(serverIpAddress, pch);
-    pch = strtok(NULL, "|");
-    int serverServicePort = atoi(pch);      // ServerServicePort   - TRANSFORM
-    pch = strtok(NULL, "|");
-    char responseId[21] = "";               // ResponseID (data)
-    strcpy(responseId, pch);
-    pch = strtok(NULL, "|");
-    int responseType = atoi(pch);           // ResponseType
+    // Log response as last always
+    finalRspTime = GetTickCount();
 
-    // Rebuild response so middleware is transparent to client
+    // Grab fields from response
+    string req(inStr);
+    size_t pos = req.find(delimiter);
+    req.erase(0, pos + delimiter.length());
+
+    // Fields
+    long msTimestamp = 0;
+    int requestId = 0;
+    string studentName;
+    string studentId;
+    int responseDelay = 0;
+    string foreignHostIpAddress;
+    int foreignHostServicePort = 0;
+    int serverSocketNumber = 0;
+    string serverIpAddress;
+    int serverServicePort = 0;
+    string responseId;
+    int responseType = 0;
+
+    // Tokenizer
+    for (int numToken = 0; numToken < 12; ++numToken)
+    {
+        size_t pos = req.find(delimiter);
+        string token = req.substr(0, pos);
+
+        switch (numToken)
+        {
+        case 0:
+            msTimestamp = atol(token.c_str());
+            break;
+        case 1:
+            requestId = atoi(token.c_str());
+            break;
+        case 2:
+            studentName = token;
+            break;
+        case 3:
+            studentId = token;
+            break;
+        case 4:
+            responseDelay = atoi(token.c_str());
+            break;
+        case 5:
+            foreignHostIpAddress = token;
+            break;
+        case 6:
+            foreignHostServicePort = atoi(token.c_str());
+            break;
+        case 7:
+            serverSocketNumber = atoi(token.c_str());
+            break;
+        case 8:
+            serverIpAddress = token;
+            break;
+        case 9:
+            serverServicePort = atoi(token.c_str());
+            break;
+        case 10:
+            responseId = token;
+            break;
+        case 11:
+            // Response Type (only for lab 2 clients)
+            responseType = atoi(token.c_str());
+            break;
+        }
+
+        req.erase(0, pos + delimiter.length());
+    }
+
+    // Process transaction according to request ID and output to log
+    cout << reqMsgs.at(requestId) << endl;
+    cout << inStr << endl;
+
+    // Save transaction info for output later
+    if (numTx == 0)
+    {
+        strcpy_s(serverName, studentName.c_str());
+    }
+    ++numTx;
+
+    // Transform response and forward back to client
     string msg = "";
     msg.append("RSP");
     msg.append("|");
-    msg.append(std::to_string(msTimeStamp)); // DONE
+    msg.append(std::to_string(msTimestamp));
     msg.append("|");
-    msg.append(std::to_string(requestId)); // DONE
+    msg.append(std::to_string(requestId));
     msg.append("|");
-    msg.append(studentName); // DONE
+    msg.append(studentName);
     msg.append("|");
-    msg.append(studentId); // DONE
+    msg.append(studentId);
     msg.append("|");
-    msg.append(std::to_string(responseDelay)); // DONE
+    msg.append(std::to_string(responseDelay));
     msg.append("|");
     
     char addr[INET_ADDRSTRLEN] = "NULL";
@@ -286,19 +389,17 @@ void ServerRspToClientRsp(char * rsp)
     int local_port = ntohs(sin.sin_port);
 
     inet_ntop(AF_INET, &sin.sin_addr, addr, sizeof(addr));
-    
-    //msg.append(foreignHostIpAddress); // INSERT CLIENT_SOCKET IP
+
     msg.append(addr);
     msg.append("|");
-    //msg.append(std::to_string(foreignHostServicePort)); // INSERT CLIENT_SOCKET PORT
     msg.append(std::to_string(local_port));
 
     msg.append("|");
-    msg.append(std::to_string(serverSocketNumber)); // DONE
+    msg.append(std::to_string(serverSocketNumber));
     msg.append("|");
-    msg.append(serverIpAddress); // DONE - INSERT TRUE SERVER IP
+    msg.append(serverIpAddress); // INSERT TRUE SERVER IP
     msg.append("|");
-    msg.append(std::to_string(serverServicePort)); // DONE - INSERT TRUE SERVER PORT
+    msg.append(std::to_string(serverServicePort)); // INSERT TRUE SERVER PORT
     msg.append("|");
     msg.append(responseId);
     msg.append("|");
@@ -306,5 +407,116 @@ void ServerRspToClientRsp(char * rsp)
     msg.append("|");
 
     // Replace original string
-    strcpy(rsp, const_cast<char*>(msg.c_str()));
+    strcpy(inStr, const_cast<char*>(msg.c_str()));
+}
+
+//
+// Outputs trail record.
+//
+void addTrailRecord(int shutTransmit, int shutReceive, int shutSocket)
+{
+    string msg = "";
+
+    std::time_t rawtime;
+    std::tm* timeinfo;
+    char buffer[80];
+    std::time(&rawtime);
+    timeinfo = std::localtime(&rawtime);
+
+    /*
+    Field Name : Date
+    Data type : ASCII, in the form of MMDDYYYY
+    Justification : Any
+    Length : 8
+    Begin position : 0
+    End position: 7
+    Description:  Date of completion of lab scenario
+    */
+
+    std::strftime(buffer, 80, "%m%d%Y", timeinfo);
+    msg.append(buffer);
+    msg.append("|");
+
+    /*
+    Field Name:  Time
+    Data type:  ASCII, in the form of HHMMSS [24 hr. notation]
+    Justification: Any
+    Length:  6
+    Begin position:  9
+    End position: 14
+    Description:  Time of completion of lab scenario
+    */
+
+    std::strftime(buffer, 80, "%H%M%S", timeinfo);
+    msg.append(buffer);
+    msg.append("|");
+
+    /*
+    Field Name:  RcvShutdownStatus
+    Data type:  ASCII Numeric
+    Justification: Right, space or zero filled to the left
+    Length:  5
+    Begin position:  16
+    End position: 20
+    Description:  Return status from issuing a shutdown of the receive half session.
+    Insert a vertical ‘|’ character at position 21
+    */
+
+    msg.append(std::to_string(shutTransmit));
+    msg.append("|");
+
+    /*
+    Field Name:  XmtShutdownStatus
+    Data type:  ASCII Numeric
+    Justification: Right, space or zero filled to the left
+    Length:  5
+    Begin position:  22
+    End position: 26
+    Description:  Return status from issuing a shutdown of the transmit half
+    session.
+    */
+
+    msg.append(std::to_string(shutReceive));
+    msg.append("|");
+
+    /*
+    Field Name : CloseStatus
+    Data type : ASCII Numeric
+    Justification : Right, space or zero filled to the left
+    Length : 5
+    Begin position : 28
+    End position : 32
+    Description : Return status from issuing a socket close command
+    */
+
+    msg.append(std::to_string(shutSocket));
+
+    cout << msg << endl;
+
+    double reqRunDuration = (finalReqTime - firstReqTime);
+    double rspRunDuration = (finalRspTime - firstRspTime);
+    double txRunDuration = (finalRspTime - firstReqTime);
+
+    //Requests transmitted = [xxxxx]
+    cout << "Requests Transmitted   = [" << numTx << "]" << endl;
+    //Responses received = [xxxxx]
+    cout << "Responses Received     = [" << numTx << "]" << endl;
+    //Req.run duration(ms) = [xxxxxxxxx]
+    cout << "Req. run duration (ms) = [" << setprecision(2) << fixed << reqRunDuration << "]" << endl;
+    //Rsp.Run duration(ms) = [xxxxxxxxx]
+    cout << "Rsp. run duration (ms) = [" << setprecision(2) << fixed << rspRunDuration << "]" << endl;
+    //Trans.Duration(ms) = [xxxxxxxxx]
+    cout << "Trans. duration   (ms) = [" << setprecision(2) << fixed << txRunDuration << "]" << endl;
+    //Actual req.pace(ms) = [xxxx]
+    cout << "Actual req. pace  (ms) = [" << setprecision(2) << fixed << (reqRunDuration / numTx) << "]" << endl;
+    //Actual rsp.Pace(ms) = [xxxx]
+    cout << "Actual rsp. pace  (ms) = [" << setprecision(2) << fixed << (rspRunDuration / numTx) << "]" << endl;
+    //Configured pace(ms) = [xxxx]
+    cout << "Configured pace   (ms) = [" << msDelay << "]" << endl;
+    //Transaction avg. (ms) = [xxxx]
+    cout << "Transaction avg.  (ms) = [" << setprecision(2) << fixed << (txRunDuration / numTx) << "]" << endl;
+    //Client Name:
+    cout << "Client student: WrightL" << endl;
+    //Server Name:
+    cout << "Server student: " << serverName << endl;
 }
