@@ -7,7 +7,7 @@
 #include <stdint.h>
 #include <atlstr.h>
 #include <thread>
-#include <vector>
+#include <map>
 #include "ConnectionUtil.h"
 
 using namespace std;
@@ -38,7 +38,7 @@ u_long finalRspTime = 0;
 thread serverThread;
 
 // Stores request messages for middleware client log output
-vector<char*> reqMsgs;
+map<char*, char*> reqMsgs;
 
 // Forward declarations
 SOCKET GetListenSock();
@@ -219,10 +219,18 @@ unsigned __stdcall ClientSession(void *data)
         if (firstReqTime == 0) firstReqTime = GetTickCount();
         finalReqTime = GetTickCount();
 
-        // Save message for output later
+		// Grab request ID and save message to map for output later
+		string temp(req);
+		size_t pos = temp.find(delimiter);
+		temp.erase(0, pos + delimiter.length()); // Shed REQ from message
+		pos = temp.find(delimiter);
+		temp.erase(0, pos + delimiter.length()); // Shed msTimestamp from message
+		string token(temp.substr(0, pos)); // Grab requestId
+		char * key = new char[21];
+		strcpy(key, token.c_str());
         char * msg = new char[MAX_MSG_SIZE];
         strcpy(msg, req);
-        reqMsgs.push_back(msg);
+        reqMsgs.insert(key, msg);
 
         // Forward request to server (watch for bottleneck in thread)
         if (!putReq(server_socket, req))
@@ -294,7 +302,7 @@ void doRspToClientRsp(char * inStr)
 
     // Fields
     long msTimestamp = 0;
-    int requestId = 0;
+    string requestId;
     string studentName;
     string studentId;
     int responseDelay = 0;
@@ -318,7 +326,7 @@ void doRspToClientRsp(char * inStr)
             msTimestamp = atol(token.c_str());
             break;
         case 1:
-            requestId = atoi(token.c_str());
+            requestId = token;
             break;
         case 2:
             studentName = token;
@@ -357,8 +365,13 @@ void doRspToClientRsp(char * inStr)
     }
 
     // Process transaction according to request ID and output to log
-    cout << reqMsgs.at(requestId) << endl;
+	auto element = reqMsgs.find(const_cast<char*>(requestId.c_str()));
+	cout << element->second << endl;
     cout << inStr << endl;
+
+	// Cleanup
+	delete[] element->first;
+	delete[] element->second;
 
     // Save transaction info for output later
     if (numTx == 0)
@@ -373,7 +386,7 @@ void doRspToClientRsp(char * inStr)
     msg.append("|");
     msg.append(std::to_string(msTimestamp));
     msg.append("|");
-    msg.append(std::to_string(requestId));
+    msg.append(requestId);
     msg.append("|");
     msg.append(studentName);
     msg.append("|");

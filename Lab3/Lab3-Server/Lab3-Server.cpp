@@ -27,6 +27,7 @@ int main(int argc, char* argv[])
 {
     bool validArgs = true;
 
+	/*
     if (argc == 3)
     {
         for (int arg = 1; arg < argc && validArgs; ++arg)
@@ -51,6 +52,9 @@ int main(int argc, char* argv[])
         cout << "ERROR: arguments required: -port <port number>" << endl;
         return 1;
     }
+	*/
+
+	portNum = 2605;
 
     if (!initWinsock())
     {
@@ -164,7 +168,7 @@ string getRspFromReq(SOCKET sock, char * inStr)
 
     // Fields
     long msTimestamp = 0;
-    int requestId = 0;
+    string requestId = "";
     string studentName;
     string studentId;
     int responseDelay = 0;
@@ -188,7 +192,7 @@ string getRspFromReq(SOCKET sock, char * inStr)
                 msTimestamp = atol(token.c_str());
                 break;
             case 1:
-                requestId = atoi(token.c_str());
+                requestId = token;
                 break;
             case 2:
                 studentName = token;
@@ -267,7 +271,7 @@ string getRspFromReq(SOCKET sock, char * inStr)
     Description: Data from the RequestID field of the client’s request message
     */
 
-    result.append(std::to_string(requestId));
+    result.append(requestId);
     result.append(delimiter);
 
     /*
