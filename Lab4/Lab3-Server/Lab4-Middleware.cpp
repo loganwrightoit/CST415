@@ -38,7 +38,7 @@ u_long finalRspTime = 0;
 thread serverThread;
 
 // Stores request messages for middleware client log output
-map<char*, char*> reqMsgs;
+map<size_t, char*> reqMsgs;
 
 // Forward declarations
 SOCKET GetListenSock();
@@ -225,12 +225,14 @@ unsigned __stdcall ClientSession(void *data)
 		temp.erase(0, pos + delimiter.length()); // Shed REQ from message
 		pos = temp.find(delimiter);
 		temp.erase(0, pos + delimiter.length()); // Shed msTimestamp from message
+        pos = temp.find(delimiter);
 		string token(temp.substr(0, pos)); // Grab requestId
-		char * key = new char[21];
-		strcpy(key, token.c_str());
+
+        // Save message for output later
+        hash<string> fn_hash;
         char * msg = new char[MAX_MSG_SIZE];
         strcpy(msg, req);
-        reqMsgs.insert(key, msg);
+        reqMsgs.insert(std::pair<size_t, char*>(fn_hash(token), msg));
 
         // Forward request to server (watch for bottleneck in thread)
         if (!putReq(server_socket, req))
@@ -365,12 +367,19 @@ void doRspToClientRsp(char * inStr)
     }
 
     // Process transaction according to request ID and output to log
-	auto element = reqMsgs.find(const_cast<char*>(requestId.c_str()));
-	cout << element->second << endl;
-    cout << inStr << endl;
+    hash<string> fn_hash;
+    auto element = reqMsgs.find(fn_hash(requestId));
+    if (element != reqMsgs.end())
+    {
+	    cout << element->second << endl;
+        cout << inStr << endl;
+    }
+    else
+    {
+        cout << "SPURIOUS RSP: " << inStr << endl;
+    }
 
-	// Cleanup
-	delete[] element->first;
+	// Cleanup request memory in cache
 	delete[] element->second;
 
     // Save transaction info for output later
