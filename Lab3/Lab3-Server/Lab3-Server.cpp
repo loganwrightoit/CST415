@@ -27,7 +27,6 @@ int main(int argc, char* argv[])
 {
     bool validArgs = true;
 
-	/*
     if (argc == 3)
     {
         for (int arg = 1; arg < argc && validArgs; ++arg)
@@ -52,9 +51,6 @@ int main(int argc, char* argv[])
         cout << "ERROR: arguments required: -port <port number>" << endl;
         return 1;
     }
-	*/
-
-	portNum = 2605;
 
     if (!initWinsock())
     {
