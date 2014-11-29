@@ -35,6 +35,12 @@ u_long firstRspTime = 0;
 u_long finalReqTime = 0;
 u_long finalRspTime = 0;
 
+// Fields used for building RSP messages quickly
+char mdw_addr[INET_ADDRSTRLEN] = "NULL";
+int mdw_port = 0;
+char srv_addr[INET_ADDRSTRLEN] = "NULL";
+int srv_port = 0;
+
 thread serverThread;
 
 // Stores request messages for middleware client log output
@@ -46,7 +52,7 @@ SOCKET server_socket = INVALID_SOCKET;
 SOCKET client_socket = INVALID_SOCKET;
 unsigned __stdcall ClientSession(void *data);
 unsigned __stdcall ServerSession(void *data);
-void doRspToClientRsp(char * inStr);
+void doReqToClientReq(char * inStr);
 void addTrailRecord(int shutTransmit, int shutReceive, int shutSocket);
 
 //
@@ -219,22 +225,10 @@ unsigned __stdcall ClientSession(void *data)
         if (firstReqTime == 0) firstReqTime = GetTickCount();
         finalReqTime = GetTickCount();
 
-		// Grab request ID and save message to map for output later
-		string temp(req);
-		size_t pos = temp.find(delimiter);
-		temp.erase(0, pos + delimiter.length()); // Shed REQ from message
-		pos = temp.find(delimiter);
-		temp.erase(0, pos + delimiter.length()); // Shed msTimestamp from message
-        pos = temp.find(delimiter);
-		string token(temp.substr(0, pos)); // Grab requestId
+        // Insert our information into new request message, and save for output later
+        doReqToClientReq(req);
 
-        // Save message for output later
-        hash<string> fn_hash;
-        char * msg = new char[MAX_MSG_SIZE];
-        strcpy(msg, req);
-        reqMsgs.insert(std::pair<size_t, char*>(fn_hash(token), msg));
-
-        // Forward request to server (watch for bottleneck in thread)
+        // Send our request to server
         if (!putReq(server_socket, req))
             break;
     }
@@ -249,6 +243,20 @@ unsigned __stdcall ClientSession(void *data)
 
 unsigned __stdcall ServerSession(void *data)
 {
+    // Gather MIDDLEWARE CLIENT socket information for use later
+    struct sockaddr_in mdw_sin;
+    int mdw_addrlen = sizeof(mdw_sin);
+    getsockname(server_socket, (struct sockaddr *)&mdw_sin, &mdw_addrlen);
+    mdw_port = ntohs(mdw_sin.sin_port);
+    inet_ntop(AF_INET, &mdw_sin.sin_addr, mdw_addr, sizeof(mdw_addr)); // Fill addr string with client IP
+
+    // Gather SERVER socket information for use later
+    struct sockaddr_in srv_sin;
+    int srv_addrlen = sizeof(srv_sin);
+    getpeername(server_socket, (struct sockaddr *)&srv_sin, &srv_addrlen);
+    srv_port = ntohs(srv_sin.sin_port);
+    inet_ntop(AF_INET, &srv_sin.sin_addr, srv_addr, sizeof(srv_addr)); // Fill ADDR string with SERVER IP
+
     int sockNum = server_socket;
     cout << "Server connected on socket " << sockNum << endl;
     cout << "Waiting for client connection..." << endl;
@@ -277,10 +285,32 @@ unsigned __stdcall ServerSession(void *data)
         if (firstRspTime == 0) firstRspTime = GetTickCount();
         finalRspTime = GetTickCount();
 
-        // Log and transform response
-        doRspToClientRsp(rsp);
+        // Grab REQ ID
+        string temp(rsp);
+        size_t pos = temp.find(delimiter);
+        temp.erase(0, pos + delimiter.length()); // Trim REQ from message
+        pos = temp.find(delimiter);
+        temp.erase(0, pos + delimiter.length()); // Trim msTimestamp from message
+        pos = temp.find(delimiter);
+        string token(temp.substr(0, pos)); // Grab requestId
 
-        // Send transformed response back to client
+        // Match RSP to REQ ID
+        hash<string> fn_hash;
+        auto element = reqMsgs.find(fn_hash(token));
+        if (element != reqMsgs.end())
+        {
+            // Output to log
+            cout << element->second << endl;
+            cout << rsp << endl;
+
+            // Increment transaction number for trailer log output
+            ++numTx;
+
+            // Cleanup request memory in cache
+            delete[] element->second;
+        }
+
+        // Forward response to client
         if (!putRsp(client_socket, rsp))
             break;
     }
@@ -289,16 +319,17 @@ unsigned __stdcall ServerSession(void *data)
 }
 
 //
-// Matches request and response and sends to output.
-// Secondly, transforms response message by replacing host info with server info.
+// Creates a new REQ by substituting middleware information into original REQ
+// and replacing the string.
 //
-void doRspToClientRsp(char * inStr)
+void doReqToClientReq(char * inStr)
 {
     // Log response as last always
     finalRspTime = GetTickCount();
 
-    // Grab fields from response
     string req(inStr);
+
+    // Trim REQ from string
     size_t pos = req.find(delimiter);
     req.erase(0, pos + delimiter.length());
 
@@ -316,7 +347,7 @@ void doRspToClientRsp(char * inStr)
     string responseId;
     int responseType = 0;
 
-    // Tokenizer
+    // Tokenize remainder of string
     for (int numToken = 0; numToken < 12; ++numToken)
     {
         size_t pos = req.find(delimiter);
@@ -366,32 +397,9 @@ void doRspToClientRsp(char * inStr)
         req.erase(0, pos + delimiter.length());
     }
 
-    // Process transaction according to request ID and output to log
-    hash<string> fn_hash;
-    auto element = reqMsgs.find(fn_hash(requestId));
-    if (element != reqMsgs.end())
-    {
-	    cout << element->second << endl;
-        cout << inStr << endl;
-    }
-    else
-    {
-        cout << "SPURIOUS RSP: " << inStr << endl;
-    }
-
-	// Cleanup request memory in cache
-	delete[] element->second;
-
-    // Save transaction info for output later
-    if (numTx == 0)
-    {
-        strcpy_s(serverName, studentName.c_str());
-    }
-    ++numTx;
-
     // Transform response and forward back to client
-    string msg = "";
-    msg.append("RSP");
+    string msg;
+    msg.append("REQ");
     msg.append("|");
     msg.append(std::to_string(msTimestamp));
     msg.append("|");
@@ -403,30 +411,26 @@ void doRspToClientRsp(char * inStr)
     msg.append("|");
     msg.append(std::to_string(responseDelay));
     msg.append("|");
-    
-    char addr[INET_ADDRSTRLEN] = "NULL";
-    struct sockaddr_in sin;
-    int addrlen = sizeof(sin);
-    getpeername(client_socket, (struct sockaddr *)&sin, &addrlen);
-    int local_port = ntohs(sin.sin_port);
-
-    inet_ntop(AF_INET, &sin.sin_addr, addr, sizeof(addr));
-
-    msg.append(addr);
+    msg.append(mdw_addr); // Replace with MIDDLEWARE ADDR
     msg.append("|");
-    msg.append(std::to_string(local_port));
-
+    msg.append(std::to_string(mdw_port)); // Replace with MIDDLEWARE PORT
     msg.append("|");
-    msg.append(std::to_string(serverSocketNumber));
+    msg.append(std::to_string(server_socket)); // Replace with SERVER socket handle
     msg.append("|");
-    msg.append(serverIpAddress); // INSERT TRUE SERVER IP
+    msg.append(srv_addr); // Replace with SERVER ADDR
     msg.append("|");
-    msg.append(std::to_string(serverServicePort)); // INSERT TRUE SERVER PORT
+    msg.append(std::to_string(srv_port)); // Replace with SERVER PORT
     msg.append("|");
     msg.append(responseId);
     msg.append("|");
     msg.append(std::to_string(responseType));
     msg.append("|");
+
+    // Save REQ for output later
+    hash<string> fn_hash;
+    char * temp = new char[MAX_MSG_SIZE];
+    strcpy(temp, msg.c_str());
+    reqMsgs.insert(std::pair<size_t, char*>(fn_hash(requestId), temp));
 
     // Replace original string
     strcpy(inStr, const_cast<char*>(msg.c_str()));
